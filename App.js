@@ -75,22 +75,28 @@ async function fetchVenues() {
   }));
 }
 
-// vibe mais recente para UMA venue (usamos o id)
+// vibe mais recente (últimas 24h)
 async function fetchLatestVibe(venueKey) {
   if (!venueKey) return null;
+
+  const since = new Date(
+    Date.now() - 24 * 60 * 60 * 1000
+  ).toISOString();
 
   const { data, error } = await supabase
     .from("vibes")
     .select("crowd, ratio, line, cover, created_at")
     .eq("venue_id", venueKey)
+    .gte("created_at", since)
     .order("created_at", { ascending: false })
     .limit(1)
-    .maybeSingle(); // se não houver linhas, data = null
+    .maybeSingle();
 
   if (error) {
     console.log("Erro a buscar latest vibe:", error.message);
     return null;
   }
+
   return data;
 }
 
@@ -1011,4 +1017,3 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
 });
-
