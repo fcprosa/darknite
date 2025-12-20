@@ -164,12 +164,12 @@ export default function App() {
   // guardar vibe em Supabase
   const handleSubmitVibe = async () => {
     if (!selectedVenue) {
-      Alert.alert("Error", "Nenhum bar selecionado.");
+Alert.alert("Error", "No venue selected.");
       return;
     }
 
     if (!crowdLevel || !ratio || !line || !cover) {
-      Alert.alert("Oops", "Escolhe crowd, ratio, line e cover antes de enviar.");
+      Alert.alert("Oops", "Please select crowd, ratio, line, and cover.");
       return;
     }
 
@@ -189,18 +189,18 @@ export default function App() {
       ]);
 
       if (error) {
-        Alert.alert("Erro Supabase", error.message);
+Alert.alert("Server error", error.message);
         console.log("Supabase insert error:", error);
         return;
       }
 
       console.log("Vibe gravado:", data);
       setShowSheet(false);
-      Alert.alert("Obrigado!", "O teu vibe foi guardado.");
+      Alert.alert("Thanks!", "Your vibe was posted.");
       // 🔥 força VENUES + DETAIL a atualizarem depois de guardar
       setRefreshKey((k) => k + 1);
     } catch (e) {
-      Alert.alert("Erro inesperado", e.message);
+Alert.alert("Unexpected error", e.message);
       console.log("Unexpected error:", e);
     } finally {
       setSubmitting(false);
@@ -443,7 +443,7 @@ function SignInScreen({ onBack, onSignInSuccess }) {
           </TouchableOpacity>
 
           <Text style={styles.signInHint}>
-            Demo only – sign in ainda não cria conta real.
+Demo only – signing in does not create a real account yet.
           </Text>
 
           <TouchableOpacity
@@ -1011,3 +1011,4 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
 });
+
