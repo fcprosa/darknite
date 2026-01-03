@@ -1,33 +1,11 @@
-# DarkNite 🌙🔥
+# Sample Snack app
 
-DarkNite is a nightlife discovery app that shows **real-time vibes** at venues:
-crowd level, gender ratio, lines, and cover — powered by user submissions.
+Open the `App.js` file to start writing some code. You can preview the changes directly on your phone or tablet by scanning the **QR code** or use the iOS or Android emulators. When you're done, click **Save** and share the link!
 
-## 🚀 What it does
-- Browse nightlife venues
-- See live gender ratios (based on latest vibes)
-- Submit crowd / ratio / line / cover in real time
-- Updates instantly after each submission
+When you're ready to see everything that Expo provides (or if you want to use your own editor) you can **Download** your project and use it with [expo cli](https://docs.expo.dev/get-started/installation/#expo-cli)).
 
-## 🧠 Tech (current MVP)
-- React Native (Expo / Snack)
-- Supabase (Postgres, RLS, realtime-ready)
-- Single-file MVP (`App.js`)
+All projects created in Snack are publicly available, so you can easily share the link to this project via link, or embed it on a web page with the `<>` button.
 
-## 🧪 Current status
-- Working MVP
-- Live Supabase integration
-- Real-time updates after posting vibes
-- No auth yet (demo mode)
+If you're having problems, you can tweet to us [@expo](https://twitter.com/expo) or ask in our [forums](https://forums.expo.dev/c/expo-dev-tools/61) or [Discord](https://chat.expo.dev/).
 
-## 🎯 Next steps
-- Proper project structure (move out of Snack)
-- Authentication (Supabase Auth)
-- Realtime subscriptions (no manual refresh)
-- Map view (Mapbox / Google Maps)
-- iOS & Android builds
-
-## 👤 Author
-Built by Daniel Rosa  
-Concept + MVP logic + backend integration
-
+Snack is Open Source. You can find the code on the [GitHub repo](https://github.com/expo/snack).
