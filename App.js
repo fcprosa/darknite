@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   SafeAreaView,
   View,
@@ -12,8 +12,17 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  Animated,
+  PanResponder,
+  Modal,
+  Keyboard,
+  TouchableWithoutFeedback,
+  Easing,
 } from "react-native";
 import { createClient } from "@supabase/supabase-js";
+import VenueCardLovable from "./components/VenueCardLovable";
+import VenueDetailsLovable from "./components/VenueDetailsLovable";
+import PostVibeScreen from "./components/PostVibeScreen";
 
 const { height } = Dimensions.get("window");
 
@@ -100,6 +109,30 @@ async function fetchLatestVibe(venueKey) {
   return data;
 }
 
+// Fetch recent vibes (last 2 hours)
+async function fetchRecentVibes(venueKey, hours = 2) {
+  if (!venueKey) return [];
+
+  const since = new Date(
+    Date.now() - hours * 60 * 60 * 1000
+  ).toISOString();
+
+  const { data, error } = await supabase
+    .from("vibes")
+    .select("crowd, ratio, line, cover, created_at")
+    .eq("venue_id", venueKey)
+    .gte("created_at", since)
+    .order("created_at", { ascending: false })
+    .limit(20);
+
+  if (error) {
+    console.log("Erro a buscar recent vibes:", error.message);
+    return [];
+  }
+
+  return data || [];
+}
+
 // converte label -> percentagens
 function mapRatioToPercent(ratioLabel) {
   switch (ratioLabel) {
@@ -117,28 +150,16 @@ function mapRatioToPercent(ratioLabel) {
 // ---------- APP ROOT ----------
 
 export default function App() {
-  const [screen, setScreen] = useState("landing"); // landing | list | detail | auth
+  const [screen, setScreen] = useState("landing"); // landing | list | detail | auth | postvibe
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   const [venues, setVenues] = useState(FALLBACK_VENUES);
   const [loadingVenues, setLoadingVenues] = useState(true);
 
   const [selectedVenue, setSelectedVenue] = useState(null);
-  const [showSheet, setShowSheet] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-
-  const [crowdLevel, setCrowdLevel] = useState(null);
-  const [ratio, setRatio] = useState(null);
-  const [line, setLine] = useState(null);
-  const [cover, setCover] = useState(null);
 
   // força HomeScreen + VenueDetailScreen a recarregarem vibes
   const [refreshKey, setRefreshKey] = useState(0);
-
-  const crowdOptions = ["Dead", "Chill", "Fun", "Packed", "Chaos"];
-  const ratioOptions = ["Mostly guys", "Balanced", "Mostly girls"];
-  const lineOptions = ["No line", "0–10 min", "10–30 min", "30+ min"];
-  const coverOptions = ["Free", "< $10", "$10–20", "$20+"];
 
   // carregar venues da tabela `venues`
   useEffect(() => {
@@ -154,63 +175,22 @@ export default function App() {
   const openVenue = (venue) => {
     setSelectedVenue(venue);
     setScreen("detail");
-    setShowSheet(false);
-    setCrowdLevel(null);
-    setRatio(null);
-    setLine(null);
-    setCover(null);
+  };
+
+  const openPostVibeScreen = (venue) => {
+    // Preserve existing selectedVenue if no venue is passed (e.g., called from VenueDetails)
+    // Only update if a valid venue is explicitly provided
+    if (venue) {
+      setSelectedVenue(venue);
+    }
+    // If no venue provided but selectedVenue exists, keep it
+    // This ensures we don't clear selectedVenue when opening from detail screen
+    setScreen("postvibe");
   };
 
   const goBack = () => {
     setScreen("list");
     setSelectedVenue(null);
-    setShowSheet(false);
-  };
-
-  // guardar vibe em Supabase
-  const handleSubmitVibe = async () => {
-    if (!selectedVenue) {
-Alert.alert("Error", "No venue selected.");
-      return;
-    }
-
-    if (!crowdLevel || !ratio || !line || !cover) {
-      Alert.alert("Oops", "Please select crowd, ratio, line, and cover.");
-      return;
-    }
-
-    const venueKey = selectedVenue.id || selectedVenue.name;
-
-    try {
-      setSubmitting(true);
-
-      const { data, error } = await supabase.from("vibes").insert([
-        {
-          venue_id: venueKey,
-          crowd: crowdLevel,
-          ratio,
-          line,
-          cover,
-        },
-      ]);
-
-      if (error) {
-Alert.alert("Server error", error.message);
-        console.log("Supabase insert error:", error);
-        return;
-      }
-
-      console.log("Vibe gravado:", data);
-      setShowSheet(false);
-      Alert.alert("Thanks!", "Your vibe was posted.");
-      // 🔥 força VENUES + DETAIL a atualizarem depois de guardar
-      setRefreshKey((k) => k + 1);
-    } catch (e) {
-Alert.alert("Unexpected error", e.message);
-      console.log("Unexpected error:", e);
-    } finally {
-      setSubmitting(false);
-    }
   };
 
   // ---------- RENDER ----------
@@ -244,137 +224,222 @@ Alert.alert("Unexpected error", e.message);
             venues={venues}
             isLoggedIn={isLoggedIn}
             onOpenVenue={openVenue}
+            onOpenSheet={openPostVibeScreen}
             onBackToLanding={() => setScreen("landing")}
             refreshKey={refreshKey}
           />
         ))}
 
       {screen === "detail" && selectedVenue && (
-        <VenueDetailScreen
+        <VenueDetailsLovable
           venue={selectedVenue}
           onBack={goBack}
-          onOpenSheet={() => setShowSheet(true)}
+          onOpenSheet={openPostVibeScreen}
           refreshKey={refreshKey}
         />
       )}
 
-      {/* BOTTOM SHEET POST YOUR VIBE */}
-      {showSheet && (
-        <View style={styles.sheetOverlay}>
-          <TouchableOpacity
-            style={styles.sheetBackdrop}
-            onPress={() => setShowSheet(false)}
-            activeOpacity={1}
-          />
-          <View style={styles.sheetContainer}>
-            <View style={styles.sheetHandle} />
-            <ScrollView
-              style={{ flex: 1 }}
-              contentContainerStyle={styles.sheetScroll}
-              showsVerticalScrollIndicator={true}
-            >
-              <Text style={styles.sheetTitle}>Post your vibe 🔥</Text>
-              <Text style={styles.sheetSubtitle}>
-                We&apos;ll use this to update the crowd, ratio, line &amp; cover.
-              </Text>
-
-              {/* CROWD */}
-              <View style={styles.sheetRow}>
-                <Text style={styles.sheetLabel}>Crowd level</Text>
-                <View style={styles.optionsRow}>
-                  {crowdOptions.map((opt) => (
-                    <OptionChip
-                      key={opt}
-                      label={opt}
-                      selected={crowdLevel === opt}
-                      onPress={() => setCrowdLevel(opt)}
-                    />
-                  ))}
-                </View>
-              </View>
-
-              {/* RATIO */}
-              <View style={styles.sheetRow}>
-                <Text style={styles.sheetLabel}>Ratio</Text>
-                <View style={styles.optionsRow}>
-                  {ratioOptions.map((opt) => (
-                    <OptionChip
-                      key={opt}
-                      label={opt}
-                      selected={ratio === opt}
-                      onPress={() => setRatio(opt)}
-                    />
-                  ))}
-                </View>
-              </View>
-
-              {/* LINE */}
-              <View style={styles.sheetRow}>
-                <Text style={styles.sheetLabel}>Line</Text>
-                <View style={styles.optionsRow}>
-                  {lineOptions.map((opt) => (
-                    <OptionChip
-                      key={opt}
-                      label={opt}
-                      selected={line === opt}
-                      onPress={() => setLine(opt)}
-                    />
-                  ))}
-                </View>
-              </View>
-
-              {/* COVER */}
-              <View style={styles.sheetRow}>
-                <Text style={styles.sheetLabel}>Cover</Text>
-                <View style={styles.optionsRow}>
-                  {coverOptions.map((opt) => (
-                    <OptionChip
-                      key={opt}
-                      label={opt}
-                      selected={cover === opt}
-                      onPress={() => setCover(opt)}
-                    />
-                  ))}
-                </View>
-              </View>
-
-              {/* BOTÃO */}
-              <TouchableOpacity
-                style={[styles.primaryButton, { marginTop: 24, marginBottom: 8 }]}
-                onPress={handleSubmitVibe}
-                disabled={submitting}
-              >
-                <Text style={styles.primaryButtonText}>
-                  {submitting ? "Submitting..." : "Submit vibe"}
-                </Text>
-              </TouchableOpacity>
-
-              <Text style={styles.sheetHint}>
-                Create a free account to drop real vibes and help others decide
-                where to go.
-              </Text>
-            </ScrollView>
-          </View>
-        </View>
+      {screen === "postvibe" && selectedVenue && (
+        <AnimatedPostVibeSheet
+          venue={selectedVenue}
+          onClose={() => {
+            // Only change screen, preserve selectedVenue
+            setScreen("detail");
+          }}
+          onSuccess={() => {
+            setRefreshKey((prev) => prev + 1);
+          }}
+        />
       )}
     </SafeAreaView>
+  );
+}
+
+// ---------- ANIMATED POST VIBE SHEET ----------
+
+function AnimatedPostVibeSheet({ venue, onClose, onSuccess }) {
+  const translateY = useRef(new Animated.Value(height)).current;
+  const backdropOpacity = useRef(new Animated.Value(0)).current;
+  const [isClosing, setIsClosing] = useState(false);
+
+  useEffect(() => {
+    // Slide up animation on mount
+    Animated.parallel([
+      Animated.timing(translateY, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.timing(backdropOpacity, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, []);
+
+  const closeSheet = () => {
+    if (isClosing) return;
+    setIsClosing(true);
+    
+    // Animate down
+    Animated.parallel([
+      Animated.timing(translateY, {
+        toValue: height,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+      Animated.timing(backdropOpacity, {
+        toValue: 0,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      onClose();
+    });
+  };
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: (evt, gestureState) => {
+        // Only respond to vertical swipes
+        return Math.abs(gestureState.dy) > Math.abs(gestureState.dx);
+      },
+      onMoveShouldSetPanResponder: (evt, gestureState) => {
+        return Math.abs(gestureState.dy) > 10 && gestureState.dy > 0;
+      },
+      onPanResponderGrant: () => {
+        translateY.setOffset(translateY._value);
+      },
+      onPanResponderMove: (evt, gestureState) => {
+        // Only allow downward drag
+        if (gestureState.dy > 0) {
+          translateY.setValue(gestureState.dy);
+        }
+      },
+      onPanResponderRelease: (evt, gestureState) => {
+        translateY.flattenOffset();
+        const threshold = height * 0.3; // Close if dragged down more than 30% of screen
+        
+        if (gestureState.dy > threshold || gestureState.vy > 0.5) {
+          // Close sheet
+          closeSheet();
+        } else {
+          // Snap back up
+          Animated.spring(translateY, {
+            toValue: 0,
+            useNativeDriver: true,
+            tension: 65,
+            friction: 11,
+          }).start();
+        }
+      },
+    })
+  ).current;
+
+  return (
+    <View style={styles.sheetOverlay}>
+      {/* Backdrop */}
+      <Animated.View
+        style={[
+          styles.sheetBackdrop,
+          {
+            opacity: backdropOpacity,
+          },
+        ]}
+      >
+        <TouchableOpacity
+          style={StyleSheet.absoluteFill}
+          activeOpacity={1}
+          onPress={closeSheet}
+        />
+      </Animated.View>
+
+      {/* Sheet Container */}
+      <Animated.View
+        style={[
+          styles.sheetContainer,
+          {
+            transform: [{ translateY }],
+          },
+        ]}
+        {...panResponder.panHandlers}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.sheetKeyboardView}
+        >
+          <PostVibeScreen
+            venue={venue}
+            onBack={closeSheet}
+            onSuccess={onSuccess}
+          />
+        </KeyboardAvoidingView>
+      </Animated.View>
+    </View>
   );
 }
 
 // ---------- LANDING ----------
 
 function LandingScreen({ onDiscover, onSignIn }) {
+  const glowAnim = useRef(new Animated.Value(0.3)).current;
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(glowAnim, {
+          toValue: 1,
+          duration: 2000,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: false,
+        }),
+        Animated.timing(glowAnim, {
+          toValue: 0.3,
+          duration: 2000,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: false,
+        }),
+      ])
+    ).start();
+  }, []);
+
+  const glowOpacity = glowAnim.interpolate({
+    inputRange: [0.3, 1],
+    outputRange: [0.4, 0.8],
+  });
+
   return (
     <View style={styles.landingRoot}>
-      <View style={styles.landingOverlay} />
+      {/* Gradient Background Layers */}
+      <View style={styles.landingGradient1} />
+      <View style={styles.landingGradient2} />
+      
       <View style={styles.landingContent}>
-        <Text style={styles.landingLogo}>DarkNite</Text>
+        {/* Logo with animated glow */}
+        <View style={styles.landingLogoContainer}>
+          <Animated.View
+            style={[
+              styles.landingLogoGlow,
+              {
+                opacity: glowOpacity,
+              },
+            ]}
+          />
+          <Text style={styles.landingLogo}>DarkNite</Text>
+        </View>
+
         <Text style={styles.landingTagline}>Know Before You Go</Text>
         <Text style={styles.landingSubtitle}>
-          Real-time vibes, gender ratios, and lines at NYC&apos;s hottest spots.
+          Real-time crowd, ratios & lines
         </Text>
 
-        <View style={{ marginTop: 32, width: "100%" }}>
+        {/* Social Proof */}
+        <Text style={styles.landingSocialProof}>
+          Live vibes from NYC spots
+        </Text>
+
+        <View style={styles.landingButtonsContainer}>
           <TouchableOpacity style={styles.landingPrimary} onPress={onDiscover}>
             <Text style={styles.landingPrimaryText}>
               Discover Tonight&apos;s Vibe
@@ -388,7 +453,7 @@ function LandingScreen({ onDiscover, onSignIn }) {
 
         <Text style={styles.landingPeek}>
           Just looking around?{" "}
-          <Text style={{ color: "#F973FF" }} onPress={onDiscover}>
+          <Text style={styles.landingPeekLink} onPress={onDiscover}>
             Peek the vibes
           </Text>
         </Text>
@@ -402,63 +467,93 @@ function LandingScreen({ onDiscover, onSignIn }) {
 function SignInScreen({ onBack, onSignInSuccess }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const passwordInputRef = useRef(null);
+
+  const dismissKeyboard = () => {
+    Keyboard.dismiss();
+  };
 
   return (
     <SafeAreaView style={styles.signInRoot}>
-      <View style={styles.signInHeaderTop}>
-        <Text style={styles.logo}>DarkNite</Text>
-      </View>
+      <TouchableWithoutFeedback onPress={dismissKeyboard}>
+        <View style={styles.signInHeaderTop}>
+          <TouchableOpacity onPress={onBack} style={styles.signInBackButton}>
+            <Text style={styles.signInBackArrow}>←</Text>
+          </TouchableOpacity>
+          <Text style={styles.logo}>DarkNite</Text>
+          <View style={styles.signInBackButton} />
+        </View>
+      </TouchableWithoutFeedback>
 
       <KeyboardAvoidingView
         style={styles.signInCenter}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
       >
-        <View style={styles.signInCard}>
-          <Text style={styles.signInTitle}>Sign in to DarkNite</Text>
-          <Text style={styles.signInSubtitle}>
-            Create a free account to see every venue, unlock the map and drop
-            real vibes.
-          </Text>
+        <TouchableWithoutFeedback onPress={dismissKeyboard}>
+          <View style={styles.signInCard}>
+            <Text style={styles.signInTitle}>Sign in to DarkNite</Text>
+            <Text style={styles.signInSubtitle}>
+              Create a free account to see every venue and drop real vibes
+            </Text>
 
-          <Text style={styles.signInLabel}>Email</Text>
-          <TextInput
-            style={styles.signInInput}
-            placeholder="you@example.com"
-            placeholderTextColor="#6B7280"
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-          />
+            <View style={styles.signInInputContainer}>
+              <Text style={styles.signInLabel}>Email</Text>
+              <TextInput
+                style={styles.signInInput}
+                placeholder="you@example.com"
+                placeholderTextColor="#6B7280"
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="next"
+                onSubmitEditing={() => passwordInputRef.current?.focus()}
+                blurOnSubmit={false}
+              />
+            </View>
 
-          <Text style={styles.signInLabel}>Password</Text>
-          <TextInput
-            style={styles.signInInput}
-            placeholder="••••••••"
-            placeholderTextColor="#6B7280"
-            secureTextEntry
-            value={password}
-            onChangeText={setPassword}
-          />
+            <View style={styles.signInInputContainer}>
+              <Text style={styles.signInLabel}>Password</Text>
+              <View style={styles.signInPasswordContainer}>
+                <TextInput
+                  ref={passwordInputRef}
+                  style={styles.signInPasswordInput}
+                  placeholder="••••••••"
+                  placeholderTextColor="#6B7280"
+                  secureTextEntry={!showPassword}
+                  value={password}
+                  onChangeText={setPassword}
+                  returnKeyType="done"
+                  onSubmitEditing={dismissKeyboard}
+                  blurOnSubmit={true}
+                />
+                <TouchableOpacity
+                  style={styles.signInPasswordToggle}
+                  onPress={() => setShowPassword(!showPassword)}
+                >
+                  <Text style={styles.signInPasswordToggleText}>
+                    {showPassword ? "Hide" : "Show"}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
 
-          <TouchableOpacity
-            style={[styles.primaryButton, { marginTop: 24 }]}
-            onPress={onSignInSuccess}
-          >
-            <Text style={styles.primaryButtonText}>Sign in (demo)</Text>
-          </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.signInSubmitButton}
+              onPress={onSignInSuccess}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.signInSubmitButtonText}>Sign in (demo)</Text>
+            </TouchableOpacity>
 
-          <Text style={styles.signInHint}>
-Demo only – signing in does not create a real account yet.
-          </Text>
-
-          <TouchableOpacity
-            onPress={onBack}
-            style={{ marginTop: 16, alignSelf: "center" }}
-          >
-            <Text style={styles.signInBack}>Back to home</Text>
-          </TouchableOpacity>
-        </View>
+            <Text style={styles.signInHint}>
+              Demo only – signing in does not create a real account yet
+            </Text>
+          </View>
+        </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -466,23 +561,31 @@ Demo only – signing in does not create a real account yet.
 
 // ---------- LISTA DE VENUES ----------
 
-function HomeScreen({ venues, isLoggedIn, onOpenVenue, onBackToLanding, refreshKey }) {
+function HomeScreen({ venues, isLoggedIn, onOpenVenue, onOpenSheet, onBackToLanding, refreshKey }) {
   const visibleVenues = isLoggedIn ? venues : venues.slice(0, 2);
   const [ratios, setRatios] = useState({}); // { [venueId]: { guys, girls } }
+  const [latestVibes, setLatestVibes] = useState({}); // { [venueId]: vibe }
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadRatios() {
-      const next = {};
+      const nextRatios = {};
+      const nextVibes = {};
       for (const v of venues) {
         const key = v.id || v.name;
         const vibe = await fetchLatestVibe(key);
-        if (vibe && vibe.ratio) {
-          next[key] = mapRatioToPercent(vibe.ratio);
+        if (vibe) {
+          nextVibes[key] = vibe;
+          if (vibe.ratio) {
+            nextRatios[key] = mapRatioToPercent(vibe.ratio);
+          }
         }
       }
-      if (!cancelled) setRatios(next);
+      if (!cancelled) {
+        setRatios(nextRatios);
+        setLatestVibes(nextVibes);
+      }
     }
 
     loadRatios();
@@ -518,34 +621,17 @@ function HomeScreen({ venues, isLoggedIn, onOpenVenue, onBackToLanding, refreshK
           const liveRatio = ratios[key];
           const guys = liveRatio?.guys ?? item.guys;
           const girls = liveRatio?.girls ?? item.girls;
+          const latestVibe = latestVibes[key] || null;
 
           return (
-            <TouchableOpacity
-              style={styles.venueCard}
+            <VenueCardLovable
+              venue={item}
+              guys={guys}
+              girls={girls}
               onPress={() => onOpenVenue(item)}
-            >
-              <Text style={styles.venueName}>{item.name}</Text>
-              <Text style={styles.venueMeta}>{item.neighborhood}</Text>
-
-              <View style={styles.ratioRow}>
-                <Text style={styles.ratioLabel}>Gender ratio (last vibe)</Text>
-                <Text style={styles.ratioNumbers}>
-                  {guys}% guys • {girls}% girls
-                </Text>
-              </View>
-              <View style={styles.ratioBar}>
-                {/* GUYS = AZUL, GIRLS = ROSA */}
-                <View style={[styles.ratioSegmentGuys, { flex: guys || 1 }]} />
-                <View style={[styles.ratioSegmentGirls, { flex: girls || 1 }]} />
-              </View>
-
-              <TouchableOpacity
-                style={[styles.primaryButton, { marginTop: 14 }]}
-                onPress={() => onOpenVenue(item)}
-              >
-                <Text style={styles.primaryButtonText}>Rate this spot 🔥</Text>
-              </TouchableOpacity>
-            </TouchableOpacity>
+              onRate={() => onOpenSheet(item)}
+              latestVibe={latestVibe}
+            />
           );
         }}
       />
@@ -645,18 +731,6 @@ function VenueDetailScreen({ venue, onBack, onOpenSheet, refreshKey }) {
 
 // ---------- OPTION CHIP ----------
 
-function OptionChip({ label, selected, onPress }) {
-  return (
-    <TouchableOpacity
-      onPress={onPress}
-      style={[styles.optionChip, selected && styles.optionChipActive]}
-    >
-      <Text style={[styles.optionText, selected && styles.optionTextActive]}>
-        {label}
-      </Text>
-    </TouchableOpacity>
-  );
-}
 
 // ---------- STYLES ----------
 
@@ -672,63 +746,106 @@ const styles = StyleSheet.create({
     backgroundColor: "#050013",
     justifyContent: "center",
     alignItems: "center",
+    position: "relative",
   },
-  landingOverlay: {
+  landingGradient1: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.6)",
+    backgroundColor: "rgba(168,85,247,0.15)",
+  },
+  landingGradient2: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(249,115,255,0.08)",
   },
   landingContent: {
     paddingHorizontal: 24,
     width: "100%",
     alignItems: "center",
+    zIndex: 1,
+  },
+  landingLogoContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+    position: "relative",
+  },
+  landingLogoGlow: {
+    position: "absolute",
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+    backgroundColor: "#F973FF",
+    opacity: 0.4,
   },
   landingLogo: {
-    fontSize: 40,
+    fontSize: 48,
     fontWeight: "800",
     color: "#F973FF",
-    marginBottom: 4,
+    letterSpacing: -1,
   },
   landingTagline: {
-    fontSize: 20,
-    color: "#E5E7EB",
-    fontWeight: "600",
-    marginBottom: 12,
+    fontSize: 24,
+    color: "#F9FAFB",
+    fontWeight: "700",
+    marginBottom: 8,
+    textAlign: "center",
   },
   landingSubtitle: {
-    color: "#9CA3AF",
+    color: "#E5E7EB",
     textAlign: "center",
-    maxWidth: 320,
+    fontSize: 16,
+    marginBottom: 8,
+    fontWeight: "500",
+  },
+  landingSocialProof: {
+    color: "#A855F7",
+    fontSize: 14,
+    fontWeight: "600",
+    marginBottom: 40,
+    textAlign: "center",
+  },
+  landingButtonsContainer: {
+    width: "100%",
+    marginBottom: 24,
   },
   landingPrimary: {
     backgroundColor: "#A855F7",
-    paddingVertical: 14,
+    paddingVertical: 16,
     borderRadius: 999,
     alignItems: "center",
-    marginBottom: 10,
+    marginBottom: 12,
     shadowColor: "#A855F7",
-    shadowOpacity: 0.7,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 8,
   },
   landingPrimaryText: {
     color: "#F9FAFB",
     fontWeight: "700",
-    fontSize: 16,
+    fontSize: 17,
+    letterSpacing: 0.3,
   },
   landingSecondary: {
     borderRadius: 999,
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: "#A855F7",
-    paddingVertical: 12,
+    paddingVertical: 14,
     alignItems: "center",
+    backgroundColor: "rgba(168,85,247,0.1)",
   },
   landingSecondaryText: {
     color: "#E5E7EB",
-    fontWeight: "600",
+    fontWeight: "700",
+    fontSize: 16,
   },
   landingPeek: {
     color: "#9CA3AF",
-    marginTop: 16,
+    fontSize: 14,
+    textAlign: "center",
+  },
+  landingPeekLink: {
+    color: "#F973FF",
+    fontWeight: "600",
   },
 
   // Header / list
@@ -863,95 +980,6 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
 
-  // Bottom sheet
-  sheetOverlay: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-    justifyContent: "flex-end",
-  },
-  sheetBackdrop: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-    backgroundColor: "rgba(0,0,0,0.7)",
-  },
-  sheetContainer: {
-    height: height * 0.9,
-    backgroundColor: "#05041F",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 10,
-    borderTopWidth: 1,
-    borderColor: "rgba(124,58,237,0.4)",
-  },
-  sheetHandle: {
-    alignSelf: "center",
-    width: 60,
-    height: 4,
-    borderRadius: 999,
-    backgroundColor: "rgba(156,163,175,0.8)",
-    marginBottom: 12,
-  },
-  sheetScroll: {
-    flexGrow: 1,
-    paddingBottom: 32,
-  },
-  sheetTitle: {
-    color: "#F9FAFB",
-    fontSize: 18,
-    fontWeight: "700",
-    marginBottom: 4,
-  },
-  sheetSubtitle: {
-    color: "#9CA3AF",
-    marginBottom: 8,
-  },
-  sheetHint: {
-    color: "#9CA3AF",
-    textAlign: "center",
-    fontSize: 12,
-    marginBottom: 8,
-  },
-  sheetRow: {
-    marginBottom: 16,
-  },
-  sheetLabel: {
-    color: "#E5E7EB",
-    marginBottom: 8,
-    fontWeight: "600",
-  },
-  optionsRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-  },
-  optionChip: {
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "rgba(156,163,175,0.7)",
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    marginRight: 8,
-    marginBottom: 8,
-  },
-  optionChipActive: {
-    backgroundColor: "#A855F7",
-    borderColor: "#F9FAFB",
-  },
-  optionText: {
-    color: "#E5E7EB",
-    fontSize: 13,
-  },
-  optionTextActive: {
-    color: "#F9FAFB",
-    fontWeight: "700",
-  },
 
   // Sign-in
   signInRoot: {
@@ -959,8 +987,23 @@ const styles = StyleSheet.create({
     backgroundColor: "#050013",
   },
   signInHeaderTop: {
-    paddingHorizontal: 24,
-    paddingTop: 32,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 8,
+  },
+  signInBackButton: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  signInBackArrow: {
+    color: "#E5E7EB",
+    fontSize: 24,
+    fontWeight: "600",
   },
   signInCenter: {
     flex: 1,
@@ -969,51 +1012,130 @@ const styles = StyleSheet.create({
     paddingBottom: 32,
   },
   signInCard: {
-    backgroundColor: "#05041F",
-    borderRadius: 20,
-    padding: 20,
+    backgroundColor: "#0B0625",
+    borderRadius: 24,
+    padding: 28,
     borderWidth: 1,
-    borderColor: "rgba(124,58,237,0.5)",
+    borderColor: "rgba(168,85,247,0.3)",
     shadowColor: "#A855F7",
-    shadowOpacity: 0.3,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.2,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 8,
   },
   signInTitle: {
     color: "#F9FAFB",
-    fontSize: 22,
+    fontSize: 28,
     fontWeight: "700",
-    marginBottom: 4,
+    marginBottom: 8,
+    textAlign: "center",
   },
   signInSubtitle: {
     color: "#9CA3AF",
-    textAlign: "left",
-    marginTop: 4,
-    marginBottom: 16,
+    textAlign: "center",
+    fontSize: 15,
+    marginBottom: 32,
+    lineHeight: 22,
+  },
+  signInInputContainer: {
+    marginBottom: 20,
   },
   signInLabel: {
     color: "#E5E7EB",
-    fontSize: 13,
-    marginBottom: 4,
-    marginTop: 12,
+    fontSize: 14,
+    fontWeight: "600",
+    marginBottom: 8,
   },
   signInInput: {
-    backgroundColor: "#020114",
-    borderRadius: 999,
+    backgroundColor: "#050013",
+    borderRadius: 12,
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingVertical: 14,
     color: "#F9FAFB",
-    borderWidth: 1,
-    borderColor: "rgba(148,163,184,0.6)",
+    fontSize: 16,
+    borderWidth: 1.5,
+    borderColor: "rgba(168,85,247,0.3)",
+  },
+  signInPasswordContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#050013",
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: "rgba(168,85,247,0.3)",
+  },
+  signInPasswordInput: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    color: "#F9FAFB",
+    fontSize: 16,
+  },
+  signInPasswordToggle: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  signInPasswordToggleText: {
+    color: "#A855F7",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  signInSubmitButton: {
+    backgroundColor: "#A855F7",
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 8,
+    shadowColor: "#A855F7",
+    shadowOpacity: 0.6,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
+  },
+  signInSubmitButtonText: {
+    color: "#F9FAFB",
+    fontWeight: "700",
+    fontSize: 16,
   },
   signInHint: {
-    color: "#9CA3AF",
+    color: "#6B7280",
     fontSize: 12,
     textAlign: "center",
-    marginTop: 12,
+    marginTop: 20,
+    lineHeight: 18,
   },
   signInBack: {
     color: "#A5B4FC",
     fontSize: 14,
+  },
+  // Animated Sheet
+  sheetOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 1000,
+  },
+  sheetBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
+  },
+  sheetContainer: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    maxHeight: height * 0.92,
+    backgroundColor: "#050013",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderTopWidth: 1,
+    borderColor: "rgba(124,58,237,0.4)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 20,
+  },
+  sheetKeyboardView: {
+    flex: 1,
   },
 });
