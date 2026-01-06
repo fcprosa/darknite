@@ -311,6 +311,20 @@ export default function PostVibeScreen({ venue, onBack, onSuccess }) {
   // Animation for step transitions
   const fadeAnim = useRef(new Animated.Value(1)).current;
 
+  // Reset all form state when component mounts or venue changes
+  useEffect(() => {
+    setCurrentStep(0);
+    setCrowdLevel(null);
+    setRatio(null);
+    setLine(null);
+    setCover(null);
+    setMusic(null);
+    setStayDuration(null);
+    setSelectedTags([]);
+    setShowExtras(false);
+    setSubmitting(false);
+  }, [venue?.id, venue?.name]);
+
   const crowdOptions = ["Dead", "Chill", "Fun", "Packed", "Chaos"];
   const ratioOptions = ["Mostly guys", "Balanced", "Mostly girls"];
   const lineOptions = ["No line", "0–10 min", "10–30 min", "30+ min"];
@@ -469,7 +483,8 @@ export default function PostVibeScreen({ venue, onBack, onSuccess }) {
   };
 
   const progress = Math.min((currentStep + 1) / REQUIRED_STEPS, 1);
-  const isOnFinalStep = currentStep === REQUIRED_STEPS - 1; // Step 5 (index 4) is the final step
+  // Only show final step when we're on the last required step AND all required fields (including music) are filled
+  const isOnFinalStep = currentStep === REQUIRED_STEPS - 1 && music !== null;
   const isFormValid = crowdLevel && ratio && line && cover && music;
 
   const toggleTag = (tag) => {
@@ -572,12 +587,25 @@ export default function PostVibeScreen({ venue, onBack, onSuccess }) {
     // Regular step content for steps 0-4
     const step = steps[currentStep];
     const hasSelection = step.value !== null;
+    
+    // Debug logging for music step
+    if (step.id === "music") {
+      console.log("Music step debug:", {
+        currentStep,
+        requiredKey: step.id,
+        musicValue: music,
+        optionsLength: step.options.length,
+        options: step.options,
+      });
+    }
+    
     return (
       <View style={styles.stepContent}>
         <Text style={styles.stepTitle}>{step.title}</Text>
         <View style={styles.optionsRow}>
           {step.options.map((opt) => {
             const isSelected = step.value === opt;
+            const isLastStep = currentStep === REQUIRED_STEPS - 1;
             return (
               <OptionChip
                 key={opt}
@@ -588,12 +616,16 @@ export default function PostVibeScreen({ venue, onBack, onSuccess }) {
                     // Deselect and stay on same step
                     step.setValue(null);
                   } else {
-                    // Select and auto-advance
+                    // Select the value
                     step.setValue(opt);
-                    // Small delay to show selection animation before advancing
-                    setTimeout(() => {
-                      advanceToNextStep();
-                    }, 200);
+                    // Only auto-advance if NOT on the last step (music step)
+                    // On the last step, selecting a value will show the confirmation screen via isOnFinalStep
+                    if (!isLastStep) {
+                      // Small delay to show selection animation before advancing
+                      setTimeout(() => {
+                        advanceToNextStep();
+                      }, 200);
+                    }
                   }
                 }}
                 large={true}

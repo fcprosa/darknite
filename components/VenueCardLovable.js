@@ -1,271 +1,233 @@
-import React from "react";
-import { View, Text, StyleSheet, TouchableOpacity, ImageBackground } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import React, { useRef } from "react";
+import { View, Text, StyleSheet, TouchableOpacity, Animated } from "react-native";
+import * as Haptics from "expo-haptics";
 
-export default function VenueCardLovable({ venue, guys, girls, onPress, onRate, latestVibe }) {
-  // Use venue.image_url if available, else local placeholder
-  const imageSource = venue?.image_url
-    ? { uri: venue.image_url }
-    : require("../assets/splash-icon.png");
+function getMusicEmoji(music) {
+  if (!music) return "🎵";
+  if (music.includes("Hip-Hop")) return "🎤";
+  if (music.includes("Afrobeats")) return "🥁";
+  if (music.includes("House") || music.includes("Techno")) return "🎛️";
+  if (music.includes("Reggaeton")) return "🪇";
+  if (music.includes("Top Hits")) return "🔥";
+  if (music.includes("Mixed")) return "🎶";
+  return "🎵";
+}
+
+function getCrowdEmoji(crowd) {
+  switch (crowd) {
+    case "Dead": return "💀";
+    case "Chill": return "😌";
+    case "Fun": return "😄";
+    case "Packed": return "🔥";
+    case "Chaos": return "⚡";
+    default: return "❓";
+  }
+}
+
+function formatTimeAgoCompact(dateString) {
+  if (!dateString) return "";
+  const now = new Date();
+  const then = new Date(dateString);
+  const diffMs = now - then;
+  const diffMins = Math.floor(diffMs / 60000);
+
+  if (diffMins < 1) return "just now";
+  if (diffMins < 60) return `${diffMins}m ago`;
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  return `${diffDays}d ago`;
+}
+
+export default function VenueCardLovable({ venue, guys, girls, onPress, latestVibe }) {
+  const scaleAnim = useRef(new Animated.Value(1)).current;
 
   // Normalize guys and girls values - default to 50/50 if null/undefined/NaN
   const normalizedGuys = (typeof guys === 'number' && !isNaN(guys)) ? guys : 50;
   const normalizedGirls = (typeof girls === 'number' && !isNaN(girls)) ? girls : 50;
 
-  // Get crowd data from latestVibe
+  // Get data from latestVibe
   const crowdLevel = latestVibe?.crowd || null;
-  
-  const getCrowdEmoji = (crowd) => {
-    switch (crowd) {
-      case "Dead": return "💀";
-      case "Chill": return "😌";
-      case "Fun": return "😄";
-      case "Packed": return "🔥";
-      case "Chaos": return "⚡";
-      default: return "❓";
-    }
-  };
-
   const crowdEmoji = crowdLevel ? getCrowdEmoji(crowdLevel) : "❓";
-  const crowdLabel = crowdLevel || "Unknown";
-
   const lineText = latestVibe?.line || "No line";
   const coverText = latestVibe?.cover || "Free";
-  const heatEmoji = "🔥";
+  const musicText = latestVibe?.music || null;
+  const musicEmoji = musicText ? getMusicEmoji(musicText) : "🎵";
+  const timeAgo = latestVibe?.created_at ? formatTimeAgoCompact(latestVibe.created_at) : null;
+
+  const handlePressIn = () => {
+    Animated.spring(scaleAnim, {
+      toValue: 0.98,
+      useNativeDriver: true,
+      tension: 300,
+      friction: 10,
+    }).start();
+  };
+
+  const handlePressOut = () => {
+    Animated.spring(scaleAnim, {
+      toValue: 1,
+      useNativeDriver: true,
+      tension: 300,
+      friction: 10,
+    }).start();
+  };
+
+  const handlePress = () => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch (e) {
+      // Haptics not available
+    }
+    onPress();
+  };
 
   return (
-    <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.9}>
-      {/* Hero Image */}
-      <View style={styles.imageContainer}>
-        <ImageBackground
-          source={imageSource}
-          style={styles.imageBackground}
-          imageStyle={styles.imageStyle}
-        >
-          <View style={styles.overlay} />
-        </ImageBackground>
-      </View>
-
-      {/* Content Container */}
-      <View style={styles.contentContainer}>
-        {/* Venue Name + Address Row */}
-        <View style={styles.venueHeaderRow}>
-          <View style={styles.venueNameRow}>
+    <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
+      <TouchableOpacity
+        style={styles.card}
+        onPress={handlePress}
+        onPressIn={handlePressIn}
+        onPressOut={handlePressOut}
+        activeOpacity={1}
+      >
+        {/* Top Row: Name + Crowd Emoji + Live Status */}
+        <View style={styles.topRow}>
+          <View style={styles.leftSection}>
             <Text style={styles.venueName}>{venue.name}</Text>
-            <Ionicons name="location" size={16} color="#9CA3AF" style={styles.locationIcon} />
-            <Text style={styles.venueAddress}>{venue.neighborhood}</Text>
+            <Text style={styles.venueNeighborhood}>{venue.neighborhood}</Text>
           </View>
-        </View>
-
-        {/* Status Pill */}
-        <View style={styles.statusPillContainer}>
-          <View style={styles.statusPill}>
-            <Text style={styles.statusEmoji}>{crowdEmoji}</Text>
-            <Text style={styles.statusLabel}>{crowdLabel}</Text>
-          </View>
-        </View>
-
-        {/* Gender Ratio Section */}
-        <View style={styles.ratioSection}>
-          <View style={styles.ratioHeaderRow}>
-            <Text style={styles.ratioHeaderText}>GENDER RATIO (LAST 2H)</Text>
-            <Text style={styles.ratioPercentText}>
-              {normalizedGuys}% / {normalizedGirls}%
-            </Text>
-          </View>
-          
-          {/* Ratio Bar */}
-          <View style={styles.ratioBarContainer}>
-            <View style={styles.ratioBar}>
-              <View style={[styles.ratioSegmentGuys, { flex: normalizedGuys }]} />
-              <View style={[styles.ratioSegmentGirls, { flex: normalizedGirls }]} />
-            </View>
-            <View style={styles.ratioIconsRow}>
-              <View style={styles.ratioIconContainer}>
-                <Text style={styles.ratioIcon}>👤</Text>
+          <View style={styles.rightSection}>
+            {/* Prominent Crowd Emoji */}
+            <Text style={styles.crowdEmoji}>{crowdEmoji}</Text>
+            {/* LIVE dot + time */}
+            {timeAgo && (
+              <View style={styles.liveStatus}>
+                <View style={styles.liveDot} />
+                <Text style={styles.liveText}>Updated {timeAgo}</Text>
               </View>
-              <View style={styles.ratioIconContainer}>
-                <Text style={styles.ratioIcon}>👤</Text>
-              </View>
-            </View>
+            )}
+            {!timeAgo && (
+              <Text style={styles.liveTextInactive}>—</Text>
+            )}
           </View>
         </View>
 
-        {/* Bottom Tiles Row */}
-        <View style={styles.tilesRow}>
-          <View style={styles.tile}>
-            <Text style={styles.tileLabel}>Line</Text>
-            <Text style={styles.tileValue}>{lineText}</Text>
+        {/* Compact Icon Row */}
+        <View style={styles.iconRow}>
+          <View style={styles.iconItem}>
+            <Text style={styles.iconEmoji}>⏱</Text>
+            <Text style={styles.iconText}>{lineText}</Text>
           </View>
-          <View style={styles.tile}>
-            <Text style={styles.tileLabel}>Cover</Text>
-            <Text style={styles.tileValue}>{coverText}</Text>
+          <View style={styles.iconItem}>
+            <Text style={styles.iconEmoji}>💵</Text>
+            <Text style={styles.iconText}>{coverText}</Text>
           </View>
-          <View style={styles.tile}>
-            <Text style={styles.tileIcon}>{heatEmoji}</Text>
-            <Text style={styles.tileLabel}>Crowd</Text>
-          </View>
+          {musicText && (
+            <View style={styles.iconItem}>
+              <Text style={styles.iconEmoji}>{musicEmoji}</Text>
+              <Text style={styles.iconText} numberOfLines={1}>{musicText}</Text>
+            </View>
+          )}
         </View>
-      </View>
-    </TouchableOpacity>
+
+        {/* Thin Ratio Bar */}
+        <View style={styles.ratioBar}>
+          <View style={[styles.ratioSegmentGuys, { flex: normalizedGuys }]} />
+          <View style={[styles.ratioSegmentGirls, { flex: normalizedGirls }]} />
+        </View>
+      </TouchableOpacity>
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
     backgroundColor: "#0B0625",
-    borderRadius: 16,
-    marginBottom: 12,
+    borderRadius: 12,
+    marginBottom: 6,
     borderWidth: 1,
     borderColor: "rgba(124,58,237,0.4)",
-    overflow: "hidden",
-    shadowColor: "#A855F7",
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
+    padding: 10,
   },
-  imageContainer: {
-    height: 180,
-    width: "100%",
-  },
-  imageBackground: {
-    flex: 1,
-    width: "100%",
-  },
-  imageStyle: {
-    resizeMode: "cover",
-  },
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.5)",
-  },
-  contentContainer: {
-    padding: 16,
-    backgroundColor: "#0B0625",
-  },
-  venueHeaderRow: {
-    marginBottom: 12,
-  },
-  venueNameRow: {
+  topRow: {
     flexDirection: "row",
-    alignItems: "center",
-    flexWrap: "wrap",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: 8,
+  },
+  leftSection: {
+    flex: 1,
+    marginRight: 12,
   },
   venueName: {
     color: "#F9FAFB",
-    fontSize: 20,
+    fontSize: 16,
     fontWeight: "700",
-    marginRight: 6,
+    marginBottom: 2,
   },
-  locationIcon: {
-    marginRight: 4,
-  },
-  venueAddress: {
+  venueNeighborhood: {
     color: "#9CA3AF",
-    fontSize: 14,
+    fontSize: 12,
   },
-  statusPillContainer: {
-    alignItems: "center",
-    marginBottom: 20,
+  rightSection: {
+    alignItems: "flex-end",
   },
-  statusPill: {
+  crowdEmoji: {
+    fontSize: 32,
+    marginBottom: 4,
+  },
+  liveStatus: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(168,85,247,0.15)",
-    borderWidth: 1,
-    borderColor: "rgba(168,85,247,0.3)",
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    gap: 4,
   },
-  statusEmoji: {
-    fontSize: 18,
-    marginRight: 6,
+  liveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#10B981",
   },
-  statusLabel: {
-    color: "#E5E7EB",
-    fontSize: 14,
-    fontWeight: "600",
+  liveText: {
+    color: "#9CA3AF",
+    fontSize: 10,
+    fontWeight: "500",
   },
-  ratioSection: {
-    marginBottom: 16,
+  liveTextInactive: {
+    color: "#6B7280",
+    fontSize: 10,
   },
-  ratioHeaderRow: {
+  iconRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    gap: 12,
     marginBottom: 8,
   },
-  ratioHeaderText: {
-    color: "#9CA3AF",
-    fontSize: 11,
-    fontWeight: "600",
-    letterSpacing: 0.5,
+  iconItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
   },
-  ratioPercentText: {
+  iconEmoji: {
+    fontSize: 14,
+  },
+  iconText: {
     color: "#E5E7EB",
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  ratioBarContainer: {
-    marginTop: 4,
+    fontSize: 11,
+    fontWeight: "500",
+    maxWidth: 80,
   },
   ratioBar: {
     flexDirection: "row",
-    height: 12,
-    borderRadius: 6,
+    height: 3,
+    borderRadius: 2,
     overflow: "hidden",
     backgroundColor: "#111827",
-    marginBottom: 6,
   },
   ratioSegmentGuys: {
     backgroundColor: "#38BDF8", // blue
   },
   ratioSegmentGirls: {
     backgroundColor: "#F973FF", // pink
-  },
-  ratioIconsRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingHorizontal: 4,
-  },
-  ratioIconContainer: {
-    width: 20,
-    height: 20,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  ratioIcon: {
-    fontSize: 14,
-  },
-  tilesRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 8,
-  },
-  tile: {
-    flex: 1,
-    backgroundColor: "rgba(168,85,247,0.1)",
-    borderWidth: 1,
-    borderColor: "rgba(168,85,247,0.2)",
-    borderRadius: 12,
-    padding: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  tileIcon: {
-    fontSize: 20,
-    marginBottom: 4,
-  },
-  tileLabel: {
-    color: "#9CA3AF",
-    fontSize: 11,
-    fontWeight: "500",
-    marginBottom: 2,
-  },
-  tileValue: {
-    color: "#E5E7EB",
-    fontSize: 12,
-    fontWeight: "600",
   },
 });

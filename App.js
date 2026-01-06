@@ -20,9 +20,18 @@ import {
   Easing,
 } from "react-native";
 import { createClient } from "@supabase/supabase-js";
+import { Ionicons } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import VenueCardLovable from "./components/VenueCardLovable";
 import VenueDetailsLovable from "./components/VenueDetailsLovable";
 import PostVibeScreen from "./components/PostVibeScreen";
+import ExploreScreen from "./components/ExploreScreen";
+import ProfileScreen from "./components/ProfileScreen";
+
+const Stack = createNativeStackNavigator();
+const Tab = createBottomTabNavigator();
 
 const { height } = Dimensions.get("window");
 
@@ -94,7 +103,7 @@ async function fetchLatestVibe(venueKey) {
 
   const { data, error } = await supabase
     .from("vibes")
-    .select("crowd, ratio, line, cover, created_at")
+    .select("crowd, ratio, line, cover, music, created_at")
     .eq("venue_id", venueKey)
     .gte("created_at", since)
     .order("created_at", { ascending: false })
@@ -119,7 +128,7 @@ async function fetchRecentVibes(venueKey, hours = 2) {
 
   const { data, error } = await supabase
     .from("vibes")
-    .select("crowd, ratio, line, cover, created_at")
+    .select("crowd, ratio, line, cover, music, created_at")
     .eq("venue_id", venueKey)
     .gte("created_at", since)
     .order("created_at", { ascending: false })
@@ -131,6 +140,22 @@ async function fetchRecentVibes(venueKey, hours = 2) {
   }
 
   return data || [];
+}
+
+// Format time ago (compact version for cards)
+function formatTimeAgoCompact(dateString) {
+  if (!dateString) return "";
+  const now = new Date();
+  const then = new Date(dateString);
+  const diffMs = now - then;
+  const diffMins = Math.floor(diffMs / 60000);
+
+  if (diffMins < 1) return "just now";
+  if (diffMins < 60) return `${diffMins}m ago`;
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  return `${diffDays}d ago`;
 }
 
 // converte label -> percentagens
@@ -147,21 +172,16 @@ function mapRatioToPercent(ratioLabel) {
   }
 }
 
-// ---------- APP ROOT ----------
+// ---------- APP CONTEXT FOR SHARED STATE ----------
 
-export default function App() {
-  const [screen, setScreen] = useState("landing"); // landing | list | detail | auth | postvibe
+const AppContext = React.createContext(null);
+
+function AppProvider({ children }) {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-
   const [venues, setVenues] = useState(FALLBACK_VENUES);
   const [loadingVenues, setLoadingVenues] = useState(true);
-
-  const [selectedVenue, setSelectedVenue] = useState(null);
-
-  // força HomeScreen + VenueDetailScreen a recarregarem vibes
   const [refreshKey, setRefreshKey] = useState(0);
 
-  // carregar venues da tabela `venues`
   useEffect(() => {
     async function loadVenues() {
       setLoadingVenues(true);
@@ -172,85 +192,275 @@ export default function App() {
     loadVenues();
   }, []);
 
-  const openVenue = (venue) => {
-    setSelectedVenue(venue);
-    setScreen("detail");
-  };
+  return (
+    <AppContext.Provider
+      value={{
+        isLoggedIn,
+        setIsLoggedIn,
+        venues,
+        loadingVenues,
+        refreshKey,
+        setRefreshKey: () => setRefreshKey((prev) => prev + 1),
+      }}
+    >
+      {children}
+    </AppContext.Provider>
+  );
+}
 
-  const openPostVibeScreen = (venue) => {
-    // Preserve existing selectedVenue if no venue is passed (e.g., called from VenueDetails)
-    // Only update if a valid venue is explicitly provided
-    if (venue) {
-      setSelectedVenue(venue);
-    }
-    // If no venue provided but selectedVenue exists, keep it
-    // This ensures we don't clear selectedVenue when opening from detail screen
-    setScreen("postvibe");
-  };
+function useAppContext() {
+  const context = React.useContext(AppContext);
+  if (!context) {
+    throw new Error("useAppContext must be used within AppProvider");
+  }
+  return context;
+}
 
-  const goBack = () => {
-    setScreen("list");
-    setSelectedVenue(null);
-  };
+// ---------- HOME STACK NAVIGATOR ----------
 
-  // ---------- RENDER ----------
+function HomeStackNavigator() {
+  const { venues, isLoggedIn, refreshKey, setRefreshKey } = useAppContext();
+  const [selectedVenue, setSelectedVenue] = useState(null);
+  const [showPostVibe, setShowPostVibe] = useState(false);
 
   return (
-    <SafeAreaView style={styles.container}>
-      {screen === "landing" && (
-        <LandingScreen
-          onDiscover={() => setScreen("list")}
-          onSignIn={() => setScreen("auth")}
-        />
-      )}
-
-      {screen === "auth" && (
-        <SignInScreen
-          onBack={() => setScreen("landing")}
-          onSignInSuccess={() => {
-            setIsLoggedIn(true);
-            setScreen("list");
+    <>
+      <Stack.Navigator
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: "#050013" },
+        }}
+      >
+        <Stack.Screen name="HomeList">
+          {({ navigation }) => {
+            const tabNavigation = navigation.getParent();
+            return (
+              <HomeScreenWrapper
+                navigation={navigation}
+                tabNavigation={tabNavigation}
+                venues={venues}
+                isLoggedIn={isLoggedIn}
+                refreshKey={refreshKey}
+                onOpenVenue={(venue) => {
+                  setSelectedVenue(venue);
+                  navigation.navigate("VenueDetails");
+                }}
+                onOpenSheet={(venue) => {
+                  if (venue) setSelectedVenue(venue);
+                  setShowPostVibe(true);
+                }}
+              />
+            );
           }}
-        />
-      )}
-
-      {screen === "list" &&
-        (loadingVenues ? (
-          <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-            <Text style={{ color: "#E5E7EB" }}>Loading venues…</Text>
-          </View>
-        ) : (
-          <HomeScreen
-            venues={venues}
-            isLoggedIn={isLoggedIn}
-            onOpenVenue={openVenue}
-            onOpenSheet={openPostVibeScreen}
-            onBackToLanding={() => setScreen("landing")}
-            refreshKey={refreshKey}
-          />
-        ))}
-
-      {screen === "detail" && selectedVenue && (
-        <VenueDetailsLovable
-          venue={selectedVenue}
-          onBack={goBack}
-          onOpenSheet={openPostVibeScreen}
-          refreshKey={refreshKey}
-        />
-      )}
-
-      {screen === "postvibe" && selectedVenue && (
+        </Stack.Screen>
+        <Stack.Screen name="VenueDetails">
+          {({ navigation }) =>
+            selectedVenue ? (
+              <VenueDetailsLovable
+                venue={selectedVenue}
+                onBack={() => navigation.goBack()}
+                onOpenSheet={(venue) => {
+                  if (venue) setSelectedVenue(venue);
+                  setShowPostVibe(true);
+                }}
+                refreshKey={refreshKey}
+              />
+            ) : null
+          }
+        </Stack.Screen>
+      </Stack.Navigator>
+      {showPostVibe && selectedVenue && (
         <AnimatedPostVibeSheet
           venue={selectedVenue}
-          onClose={() => {
-            // Only change screen, preserve selectedVenue
-            setScreen("detail");
-          }}
+          onClose={() => setShowPostVibe(false)}
           onSuccess={() => {
-            setRefreshKey((prev) => prev + 1);
+            setRefreshKey();
+            setShowPostVibe(false);
           }}
         />
       )}
+    </>
+  );
+}
+
+// ---------- EXPLORE STACK NAVIGATOR ----------
+
+function ExploreStackNavigator() {
+  const { refreshKey, setRefreshKey } = useAppContext();
+  const [selectedVenue, setSelectedVenue] = useState(null);
+  const [showPostVibe, setShowPostVibe] = useState(false);
+
+  return (
+    <>
+      <Stack.Navigator
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: "#050013" },
+        }}
+      >
+        <Stack.Screen name="ExploreList">
+          {({ navigation }) => {
+            const tabNavigation = navigation.getParent();
+            return (
+              <ExploreScreen
+                navigation={navigation}
+                tabNavigation={tabNavigation}
+                onOpenVenue={(venue) => {
+                  setSelectedVenue(venue);
+                  navigation.navigate("VenueDetails");
+                }}
+              />
+            );
+          }}
+        </Stack.Screen>
+        <Stack.Screen name="VenueDetails">
+          {({ navigation }) =>
+            selectedVenue ? (
+              <VenueDetailsLovable
+                venue={selectedVenue}
+                onBack={() => navigation.goBack()}
+                onOpenSheet={(venue) => {
+                  if (venue) setSelectedVenue(venue);
+                  setShowPostVibe(true);
+                }}
+                refreshKey={refreshKey}
+              />
+            ) : null
+          }
+        </Stack.Screen>
+      </Stack.Navigator>
+      {showPostVibe && selectedVenue && (
+        <AnimatedPostVibeSheet
+          venue={selectedVenue}
+          onClose={() => setShowPostVibe(false)}
+          onSuccess={() => {
+            setRefreshKey();
+            setShowPostVibe(false);
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+// ---------- MAIN TABS NAVIGATOR ----------
+
+function MainTabsNavigator() {
+  return (
+    <Tab.Navigator
+      screenOptions={{
+        headerShown: false,
+        tabBarStyle: {
+          backgroundColor: "#0B0625",
+          borderTopColor: "rgba(168,85,247,0.3)",
+          borderTopWidth: 1,
+          paddingBottom: 8,
+          paddingTop: 8,
+          height: 60,
+        },
+        tabBarActiveTintColor: "#A855F7",
+        tabBarInactiveTintColor: "#6B7280",
+        tabBarLabelStyle: {
+          fontSize: 12,
+          fontWeight: "600",
+        },
+      }}
+    >
+      <Tab.Screen
+        name="HomeTab"
+        component={HomeStackNavigator}
+        options={{
+          tabBarLabel: "Home",
+          tabBarIcon: ({ color, size }) => {
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/cba8ee34-06e8-4e52-ac33-69cdc33161c4',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'App.js:374',message:'tabBarIcon HomeTab size value',data:{size,sizeType:typeof size,isString:typeof size === 'string',isNumber:typeof size === 'number'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+            // #endregion
+            const numericSize = typeof size === 'number' ? size : 24;
+            return <Ionicons name="home-outline" size={numericSize} color={color} />;
+          },
+        }}
+      />
+      <Tab.Screen
+        name="ExploreTab"
+        component={ExploreStackNavigator}
+        options={{
+          tabBarLabel: "Explore",
+          tabBarIcon: ({ color, size }) => {
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/cba8ee34-06e8-4e52-ac33-69cdc33161c4',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'App.js:384',message:'tabBarIcon ExploreTab size value',data:{size,sizeType:typeof size,isString:typeof size === 'string',isNumber:typeof size === 'number'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+            // #endregion
+            const numericSize = typeof size === 'number' ? size : 24;
+            return <Ionicons name="compass-outline" size={numericSize} color={color} />;
+          },
+        }}
+      />
+      <Tab.Screen
+        name="ProfileTab"
+        options={{
+          tabBarLabel: "Profile",
+          tabBarIcon: ({ color, size }) => {
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/cba8ee34-06e8-4e52-ac33-69cdc33161c4',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'App.js:393',message:'tabBarIcon ProfileTab size value',data:{size,sizeType:typeof size,isString:typeof size === 'string',isNumber:typeof size === 'number'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+            // #endregion
+            const numericSize = typeof size === 'number' ? size : 24;
+            return <Ionicons name="person-outline" size={numericSize} color={color} />;
+          },
+        }}
+      >
+        {({ navigation }) => <ProfileScreen navigation={navigation} />}
+      </Tab.Screen>
+    </Tab.Navigator>
+  );
+}
+
+// ---------- ROOT STACK NAVIGATOR ----------
+
+function RootStackNavigator() {
+  const { setIsLoggedIn } = useAppContext();
+
+  return (
+    <Stack.Navigator
+      screenOptions={{
+        headerShown: false,
+        contentStyle: { backgroundColor: "#050013" },
+      }}
+    >
+      <Stack.Screen name="Landing">
+        {({ navigation }) => (
+          <LandingScreen
+            onDiscover={() => navigation.replace("MainTabs")}
+            onSignIn={() => navigation.navigate("SignIn")}
+          />
+        )}
+      </Stack.Screen>
+      <Stack.Screen name="SignIn">
+        {({ navigation }) => (
+          <SignInScreen
+            onBack={() => navigation.goBack()}
+            onSignInSuccess={() => {
+              setIsLoggedIn(true);
+              navigation.replace("MainTabs");
+            }}
+          />
+        )}
+      </Stack.Screen>
+      <Stack.Screen
+        name="MainTabs"
+        component={MainTabsNavigator}
+        options={{ gestureEnabled: false }}
+      />
+    </Stack.Navigator>
+  );
+}
+
+// ---------- APP ROOT ----------
+
+export default function App() {
+  return (
+    <SafeAreaView style={styles.container}>
+      <AppProvider>
+        <RootStackNavigator />
+      </AppProvider>
     </SafeAreaView>
   );
 }
@@ -384,29 +594,46 @@ function AnimatedPostVibeSheet({ venue, onClose, onSuccess }) {
 
 function LandingScreen({ onDiscover, onSignIn }) {
   const glowAnim = useRef(new Animated.Value(0.3)).current;
+  const scaleAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     Animated.loop(
       Animated.sequence([
-        Animated.timing(glowAnim, {
-          toValue: 1,
-          duration: 2000,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: false,
-        }),
-        Animated.timing(glowAnim, {
-          toValue: 0.3,
-          duration: 2000,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: false,
-        }),
+        Animated.parallel([
+          Animated.timing(glowAnim, {
+            toValue: 1,
+            duration: 3000,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: false,
+          }),
+          Animated.timing(scaleAnim, {
+            toValue: 1.1,
+            duration: 3000,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: false,
+          }),
+        ]),
+        Animated.parallel([
+          Animated.timing(glowAnim, {
+            toValue: 0.3,
+            duration: 3000,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: false,
+          }),
+          Animated.timing(scaleAnim, {
+            toValue: 1,
+            duration: 3000,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: false,
+          }),
+        ]),
       ])
     ).start();
   }, []);
 
   const glowOpacity = glowAnim.interpolate({
     inputRange: [0.3, 1],
-    outputRange: [0.4, 0.8],
+    outputRange: [0.3, 0.6],
   });
 
   return (
@@ -415,29 +642,43 @@ function LandingScreen({ onDiscover, onSignIn }) {
       <View style={styles.landingGradient1} />
       <View style={styles.landingGradient2} />
       
-      <View style={styles.landingContent}>
+      {/* Animated Blob Behind Logo */}
+      <Animated.View
+        style={[
+          styles.landingBlob,
+          {
+            opacity: glowOpacity,
+            transform: [{ scale: scaleAnim }],
+          },
+        ]}
+      />
+      
+      <ScrollView
+        contentContainerStyle={styles.landingContent}
+        showsVerticalScrollIndicator={false}
+      >
         {/* Logo with animated glow */}
         <View style={styles.landingLogoContainer}>
-          <Animated.View
-            style={[
-              styles.landingLogoGlow,
-              {
-                opacity: glowOpacity,
-              },
-            ]}
-          />
           <Text style={styles.landingLogo}>DarkNite</Text>
         </View>
 
         <Text style={styles.landingTagline}>Know Before You Go</Text>
         <Text style={styles.landingSubtitle}>
-          Real-time crowd, ratios & lines
+          Live vibes, ratios & lines — NYC
         </Text>
 
-        {/* Social Proof */}
-        <Text style={styles.landingSocialProof}>
-          Live vibes from NYC spots
-        </Text>
+        {/* Benefit Chips */}
+        <View style={styles.landingChipsContainer}>
+          <View style={styles.landingChip}>
+            <Text style={styles.landingChipText}>Live crowd</Text>
+          </View>
+          <View style={styles.landingChip}>
+            <Text style={styles.landingChipText}>Lines</Text>
+          </View>
+          <View style={styles.landingChip}>
+            <Text style={styles.landingChipText}>Music</Text>
+          </View>
+        </View>
 
         <View style={styles.landingButtonsContainer}>
           <TouchableOpacity style={styles.landingPrimary} onPress={onDiscover}>
@@ -457,7 +698,7 @@ function LandingScreen({ onDiscover, onSignIn }) {
             Peek the vibes
           </Text>
         </Text>
-      </View>
+      </ScrollView>
     </View>
   );
 }
@@ -559,12 +800,87 @@ function SignInScreen({ onBack, onSignInSuccess }) {
   );
 }
 
+// ---------- FILTER CHIP COMPONENT ----------
+
+function FilterChip({ label, isActive, onPress, onClear }) {
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+
+  const handlePressIn = () => {
+    Animated.spring(scaleAnim, {
+      toValue: 0.95,
+      useNativeDriver: true,
+      tension: 300,
+      friction: 10,
+    }).start();
+  };
+
+  const handlePressOut = () => {
+    Animated.spring(scaleAnim, {
+      toValue: 1,
+      useNativeDriver: true,
+      tension: 300,
+      friction: 10,
+    }).start();
+  };
+
+  return (
+    <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
+      <TouchableOpacity
+        style={[styles.filterChip, isActive && styles.filterChipActive]}
+        onPress={onPress}
+        onPressIn={handlePressIn}
+        onPressOut={handlePressOut}
+        activeOpacity={0.8}
+      >
+        <Text style={[styles.filterChipText, isActive && styles.filterChipTextActive]}>
+          {label}
+        </Text>
+        {isActive && onClear && (
+          <TouchableOpacity
+            onPress={(e) => {
+              e.stopPropagation();
+              onClear();
+            }}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            style={styles.filterChipClearButton}
+          >
+            <Text style={styles.filterChipClear}>×</Text>
+          </TouchableOpacity>
+        )}
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
+
+// ---------- HOME SCREEN WRAPPER ----------
+
+function HomeScreenWrapper({ navigation, tabNavigation, venues, isLoggedIn, onOpenVenue, onOpenSheet, refreshKey }) {
+  return (
+    <HomeScreen
+      navigation={navigation}
+      tabNavigation={tabNavigation}
+      venues={venues}
+      isLoggedIn={isLoggedIn}
+      onOpenVenue={onOpenVenue}
+      onOpenSheet={onOpenSheet}
+      refreshKey={refreshKey}
+    />
+  );
+}
+
 // ---------- LISTA DE VENUES ----------
 
-function HomeScreen({ venues, isLoggedIn, onOpenVenue, onOpenSheet, onBackToLanding, refreshKey }) {
-  const visibleVenues = isLoggedIn ? venues : venues.slice(0, 2);
+function HomeScreen({ navigation, tabNavigation, venues, isLoggedIn, onOpenVenue, onOpenSheet, refreshKey }) {
   const [ratios, setRatios] = useState({}); // { [venueId]: { guys, girls } }
   const [latestVibes, setLatestVibes] = useState({}); // { [venueId]: vibe }
+  const [activeFilters, setActiveFilters] = useState({
+    nearMe: false,
+    noLine: false,
+    freeCheap: false,
+    packed: false,
+    music: [],
+  });
+  const [showFiltersModal, setShowFiltersModal] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -595,25 +911,191 @@ function HomeScreen({ venues, isLoggedIn, onOpenVenue, onOpenSheet, onBackToLand
     };
   }, [refreshKey, venues]);
 
+  // Filter logic
+  const filterVenues = (venuesList) => {
+    if (!activeFilters.nearMe && !activeFilters.noLine && !activeFilters.freeCheap && !activeFilters.packed && activeFilters.music.length === 0) {
+      return venuesList;
+    }
+
+    return venuesList.filter((venue) => {
+      const key = venue.id || venue.name;
+      const vibe = latestVibes[key];
+
+      if (!vibe) {
+        // If no vibe data, only show if no filters are active (already handled above)
+        return false;
+      }
+
+      // No line filter
+      if (activeFilters.noLine && vibe.line !== "No line") {
+        return false;
+      }
+
+      // Free/cheap filter
+      if (activeFilters.freeCheap && vibe.cover !== "Free" && vibe.cover !== "< $10") {
+        return false;
+      }
+
+      // Packed filter
+      if (activeFilters.packed && vibe.crowd !== "Packed") {
+        return false;
+      }
+
+      // Music filter (OR logic - venue matches if music is in selected array)
+      if (activeFilters.music.length > 0) {
+        if (!vibe.music || !activeFilters.music.includes(vibe.music)) {
+          return false;
+        }
+      }
+
+      // Near me filter - placeholder (no filtering logic yet)
+      // if (activeFilters.nearMe) {
+      //   // TODO: Implement location-based filtering when location data is available
+      // }
+
+      return true;
+    });
+  };
+
+  const toggleFilter = (filterType, value = null) => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch (e) {
+      // Haptics not available
+    }
+    setActiveFilters((prev) => {
+      if (filterType === "music") {
+        const musicArray = prev.music.includes(value)
+          ? prev.music.filter((m) => m !== value)
+          : [...prev.music, value];
+        return { ...prev, music: musicArray };
+      } else {
+        return { ...prev, [filterType]: !prev[filterType] };
+      }
+    });
+  };
+
+  const clearFilter = (filterType, value = null) => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch (e) {
+      // Haptics not available
+    }
+    setActiveFilters((prev) => {
+      if (filterType === "music") {
+        return { ...prev, music: prev.music.filter((m) => m !== value) };
+      } else {
+        return { ...prev, [filterType]: false };
+      }
+    });
+  };
+
+  const baseVenues = isLoggedIn ? venues : venues.slice(0, 2);
+  const filteredVenues = filterVenues(baseVenues);
+
+  const musicOptions = ["Hip-Hop / R&B", "Afrobeats", "House / Techno", "Reggaeton", "Top Hits", "Mixed"];
+
   return (
     <View style={{ flex: 1 }}>
       <View style={styles.headerRow}>
-        <Text style={styles.logo}>DarkNite</Text>
-        <TouchableOpacity onPress={onBackToLanding}>
-          <Text style={styles.headerBackHome}>Home</Text>
+        <View style={styles.headerLeft}>
+          <Text style={styles.logo}>DarkNite</Text>
+          <Text style={styles.headerSubtitle}>Tonight in NYC · Live</Text>
+        </View>
+        <TouchableOpacity
+          onPress={() => tabNavigation?.navigate("ProfileTab")}
+          style={styles.mapIconButton}
+        >
+          <Ionicons name="person-circle-outline" size={28} color="#A855F7" />
         </TouchableOpacity>
       </View>
 
-      <Text style={styles.tonightBanner}>Tonight in NYC</Text>
       {!isLoggedIn && (
-        <Text style={styles.demoNote}>
-          Preview mode: showing a couple of spots. Sign in to see them all &amp;
-          drop vibes.
-        </Text>
+        <View style={styles.previewModeBadge}>
+          <Text style={styles.previewModeText}>Preview mode</Text>
+        </View>
       )}
 
+      {/* Filter Chip Bar */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.filterChipContainer}
+        contentContainerStyle={styles.filterChipContent}
+      >
+        <FilterChip
+          label="Near me"
+          isActive={activeFilters.nearMe}
+          onPress={() => toggleFilter("nearMe")}
+          onClear={() => clearFilter("nearMe")}
+        />
+        <FilterChip
+          label="No line"
+          isActive={activeFilters.noLine}
+          onPress={() => toggleFilter("noLine")}
+          onClear={() => clearFilter("noLine")}
+        />
+        <FilterChip
+          label="Free/cheap"
+          isActive={activeFilters.freeCheap}
+          onPress={() => toggleFilter("freeCheap")}
+          onClear={() => clearFilter("freeCheap")}
+        />
+        <FilterChip
+          label="Packed"
+          isActive={activeFilters.packed}
+          onPress={() => toggleFilter("packed")}
+          onClear={() => clearFilter("packed")}
+        />
+        {musicOptions.map((musicType) => (
+          <FilterChip
+            key={musicType}
+            label={musicType}
+            isActive={activeFilters.music.includes(musicType)}
+            onPress={() => toggleFilter("music", musicType)}
+            onClear={() => clearFilter("music", musicType)}
+          />
+        ))}
+        <TouchableOpacity
+          style={styles.filterChip}
+          onPress={() => {
+            try {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            } catch (e) {}
+            setShowFiltersModal(true);
+          }}
+        >
+          <Text style={styles.filterChipText}>🎚️ Filters</Text>
+        </TouchableOpacity>
+      </ScrollView>
+
+      {/* Filters Modal (Placeholder) */}
+      <Modal
+        visible={showFiltersModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowFiltersModal(false)}
+      >
+        <TouchableWithoutFeedback onPress={() => setShowFiltersModal(false)}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+              <View style={styles.modalContent}>
+                <Text style={styles.modalTitle}>Filters</Text>
+                <Text style={styles.modalText}>More filter options coming soon...</Text>
+                <TouchableOpacity
+                  style={styles.modalCloseButton}
+                  onPress={() => setShowFiltersModal(false)}
+                >
+                  <Text style={styles.modalCloseButtonText}>Close</Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
       <FlatList
-        data={visibleVenues}
+        data={filteredVenues}
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
         renderItem={({ item }) => {
@@ -629,7 +1111,6 @@ function HomeScreen({ venues, isLoggedIn, onOpenVenue, onOpenSheet, onBackToLand
               guys={guys}
               girls={girls}
               onPress={() => onOpenVenue(item)}
-              onRate={() => onOpenSheet(item)}
               latestVibe={latestVibe}
             />
           );
@@ -762,46 +1243,66 @@ const styles = StyleSheet.create({
     alignItems: "center",
     zIndex: 1,
   },
+  landingBlob: {
+    position: "absolute",
+    width: 300,
+    height: 300,
+    borderRadius: 150,
+    backgroundColor: "#A855F7",
+    top: "20%",
+    alignSelf: "center",
+    zIndex: 0,
+  },
   landingLogoContainer: {
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 12,
+    marginBottom: 24,
     position: "relative",
-  },
-  landingLogoGlow: {
-    position: "absolute",
-    width: 180,
-    height: 180,
-    borderRadius: 90,
-    backgroundColor: "#F973FF",
-    opacity: 0.4,
+    zIndex: 1,
   },
   landingLogo: {
-    fontSize: 48,
-    fontWeight: "800",
+    fontSize: 56,
+    fontWeight: "900",
     color: "#F973FF",
-    letterSpacing: -1,
+    letterSpacing: -1.5,
+    textShadowColor: "rgba(249,115,255,0.5)",
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 20,
   },
   landingTagline: {
-    fontSize: 24,
+    fontSize: 28,
     color: "#F9FAFB",
-    fontWeight: "700",
-    marginBottom: 8,
+    fontWeight: "800",
+    marginBottom: 12,
     textAlign: "center",
+    letterSpacing: -0.5,
   },
   landingSubtitle: {
     color: "#E5E7EB",
     textAlign: "center",
     fontSize: 16,
-    marginBottom: 8,
+    marginBottom: 32,
     fontWeight: "500",
   },
-  landingSocialProof: {
-    color: "#A855F7",
-    fontSize: 14,
-    fontWeight: "600",
+  landingChipsContainer: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 8,
     marginBottom: 40,
-    textAlign: "center",
+    flexWrap: "wrap",
+  },
+  landingChip: {
+    backgroundColor: "rgba(168,85,247,0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(168,85,247,0.3)",
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  landingChipText: {
+    color: "#A855F7",
+    fontSize: 13,
+    fontWeight: "600",
   },
   landingButtonsContainer: {
     width: "100%",
@@ -856,28 +1357,124 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     alignItems: "center",
   },
+  headerLeft: {
+    flex: 1,
+  },
   logo: {
     fontSize: 24,
     fontWeight: "800",
     color: "#F5F3FF",
   },
-  headerBackHome: {
-    color: "#A5B4FC",
-  },
-  tonightBanner: {
-    marginTop: 8,
-    marginHorizontal: 16,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 999,
-    backgroundColor: "rgba(148,163,184,0.12)",
-    color: "#E5E7EB",
-  },
-  demoNote: {
-    marginHorizontal: 16,
-    marginTop: 4,
+  headerSubtitle: {
     color: "#9CA3AF",
     fontSize: 12,
+    marginTop: 2,
+    fontWeight: "500",
+  },
+  mapIconButton: {
+    padding: 4,
+  },
+  previewModeBadge: {
+    alignSelf: "flex-start",
+    marginHorizontal: 16,
+    marginTop: 8,
+    backgroundColor: "rgba(168,85,247,0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(168,85,247,0.3)",
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  previewModeText: {
+    color: "#A855F7",
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  filterChipContainer: {
+    marginTop: 8,
+    marginBottom: 8,
+    maxHeight: 36,
+  },
+  filterChipContent: {
+    paddingHorizontal: 16,
+    gap: 6,
+  },
+  filterChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: "rgba(168,85,247,0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(168,85,247,0.3)",
+    height: 32,
+  },
+  filterChipActive: {
+    backgroundColor: "#A855F7",
+    borderColor: "#A855F7",
+    shadowColor: "#A855F7",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  filterChipText: {
+    color: "#E5E7EB",
+    fontSize: 12,
+    fontWeight: "500",
+  },
+  filterChipTextActive: {
+    color: "#F9FAFB",
+    fontWeight: "600",
+  },
+  filterChipClearButton: {
+    marginLeft: 6,
+    paddingLeft: 4,
+  },
+  filterChipClear: {
+    color: "#F9FAFB",
+    fontSize: 16,
+    fontWeight: "700",
+    lineHeight: 16,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalContent: {
+    backgroundColor: "#0B0625",
+    borderRadius: 20,
+    padding: 24,
+    width: "80%",
+    maxWidth: 400,
+    borderWidth: 1,
+    borderColor: "rgba(168,85,247,0.3)",
+  },
+  modalTitle: {
+    color: "#F9FAFB",
+    fontSize: 20,
+    fontWeight: "700",
+    marginBottom: 16,
+  },
+  modalText: {
+    color: "#9CA3AF",
+    fontSize: 14,
+    marginBottom: 24,
+  },
+  modalCloseButton: {
+    backgroundColor: "#A855F7",
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    alignItems: "center",
+  },
+  modalCloseButtonText: {
+    color: "#F9FAFB",
+    fontSize: 16,
+    fontWeight: "600",
   },
 
   // Venue cards

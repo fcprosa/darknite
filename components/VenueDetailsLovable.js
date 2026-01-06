@@ -23,7 +23,7 @@ async function fetchLatestVibe(venueKey) {
 
   const { data, error } = await supabase
     .from("vibes")
-    .select("id, crowd, ratio, line, cover, created_at, stay_duration, tags")
+    .select("id, crowd, ratio, line, cover, music, created_at, stay_duration, tags")
     .eq("venue_id", venueKey)
     .gte("created_at", since)
     .order("created_at", { ascending: false })
@@ -45,7 +45,7 @@ async function fetchRecentVibes(venueKey, hours = 2) {
 
   const { data, error } = await supabase
     .from("vibes")
-    .select("crowd, ratio, line, cover, created_at")
+    .select("crowd, ratio, line, cover, music, created_at")
     .eq("venue_id", venueKey)
     .gte("created_at", since)
     .order("created_at", { ascending: false })
@@ -87,6 +87,17 @@ function getCrowdEmoji(crowd) {
     default:
       return "❓";
   }
+}
+
+function getMusicEmoji(music) {
+  if (!music) return "🎵";
+  if (music.includes("Hip-Hop")) return "🎤";
+  if (music.includes("Afrobeats")) return "🥁";
+  if (music.includes("House") || music.includes("Techno")) return "🎛️";
+  if (music.includes("Reggaeton")) return "🪇";
+  if (music.includes("Top Hits")) return "🔥";
+  if (music.includes("Mixed")) return "🎶";
+  return "🎵";
 }
 
 function formatTimeAgo(dateString) {
@@ -184,6 +195,8 @@ export default function VenueDetailsLovable({
   const crowdText = hasVibe ? latestVibe.crowd : "Unknown";
   const lineText = hasVibe ? latestVibe.line : "Unknown";
   const coverText = hasVibe ? latestVibe.cover : "Unknown";
+  const musicText = hasVibe ? latestVibe.music : null;
+  const musicEmoji = musicText ? getMusicEmoji(musicText) : "🎵";
 
   const ratioPercent = hasVibe
     ? mapRatioToPercent(latestVibe.ratio)
@@ -238,6 +251,11 @@ export default function VenueDetailsLovable({
             </View>
           ) : (
             <>
+              <View style={styles.rightNowSummaryRow}>
+                <Text style={styles.rightNowSummaryText}>
+                  {crowdText} • {ratioText}{musicText ? ` • ${musicEmoji} ${musicText}` : ""}
+                </Text>
+              </View>
               <View style={styles.rightNowRow}>
                 <View style={styles.rightNowItem}>
                   <Text style={styles.rightNowEmoji}>{crowdEmoji}</Text>
@@ -267,6 +285,17 @@ export default function VenueDetailsLovable({
                   </View>
                 </View>
               </View>
+              {musicText && (
+                <View style={styles.rightNowRow}>
+                  <View style={styles.rightNowItem}>
+                    <Text style={styles.rightNowEmoji}>{musicEmoji}</Text>
+                    <View>
+                      <Text style={styles.rightNowLabel}>Music</Text>
+                      <Text style={styles.rightNowValue}>{musicText}</Text>
+                    </View>
+                  </View>
+                </View>
+              )}
               <View style={styles.rightNowFooter}>
                 <Text style={styles.footerText}>
                   {vibeCount} vibe{vibeCount === 1 ? "" : "s"} in last 2h
@@ -283,21 +312,25 @@ export default function VenueDetailsLovable({
         {!loading && recentVibes.length > 0 && (
           <>
             <Text style={styles.sectionTitle}>Recent updates</Text>
-            {recentVibes.slice(0, 10).map((vibe, index) => (
-              <View key={index} style={styles.recentUpdateRow}>
-                <Text style={styles.recentUpdateEmoji}>
-                  {getCrowdEmoji(vibe.crowd)}
-                </Text>
-                <View style={styles.recentUpdateContent}>
-                  <Text style={styles.recentUpdateText}>
-                    {vibe.crowd} • {vibe.ratio}
+            {recentVibes.slice(0, 10).map((vibe, index) => {
+              const vibeMusicEmoji = vibe.music ? getMusicEmoji(vibe.music) : "";
+              const vibeMusicText = vibe.music ? ` • ${vibeMusicEmoji} ${vibe.music}` : "";
+              return (
+                <View key={index} style={styles.recentUpdateRow}>
+                  <Text style={styles.recentUpdateEmoji}>
+                    {getCrowdEmoji(vibe.crowd)}
                   </Text>
-                  <Text style={styles.recentUpdateTime}>
-                    {formatTimeAgo(vibe.created_at)}
-                  </Text>
+                  <View style={styles.recentUpdateContent}>
+                    <Text style={styles.recentUpdateText}>
+                      {vibe.crowd} • {vibe.ratio}{vibeMusicText}
+                    </Text>
+                    <Text style={styles.recentUpdateTime}>
+                      {formatTimeAgo(vibe.created_at)}
+                    </Text>
+                  </View>
                 </View>
-              </View>
-            ))}
+              );
+            })}
           </>
         )}
 
@@ -423,6 +456,17 @@ const styles = StyleSheet.create({
     padding: 20,
     borderWidth: 1,
     borderColor: "rgba(124,58,237,0.4)",
+  },
+  rightNowSummaryRow: {
+    marginBottom: 16,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(124,58,237,0.2)",
+  },
+  rightNowSummaryText: {
+    color: "#E5E7EB",
+    fontSize: 16,
+    fontWeight: "600",
   },
   rightNowRow: {
     flexDirection: "row",
