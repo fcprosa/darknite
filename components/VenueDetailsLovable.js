@@ -9,11 +9,7 @@ import {
   Linking,
   Platform,
 } from "react-native";
-import { createClient } from "@supabase/supabase-js";
-
-const SUPABASE_URL = "https://uttcnvqhhmkfkccwjgnt.supabase.co";
-const SUPABASE_ANON_KEY = "sb_publishable_FRoLIm9eLIJYnjSMJ68KCw_hwr4zuiF";
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+import { supabase } from "../utils/supabase";
 
 // Helper functions (same as App.js)
 async function fetchLatestVibe(venueKey) {
@@ -23,7 +19,7 @@ async function fetchLatestVibe(venueKey) {
 
   const { data, error } = await supabase
     .from("vibes")
-    .select("id, crowd, ratio, line, cover, music, created_at, stay_duration, tags")
+    .select("id, crowd, ratio, line, cover, drinks_price, music, bar_type, created_at, stay_duration, tags")
     .eq("venue_id", venueKey)
     .gte("created_at", since)
     .order("created_at", { ascending: false })
@@ -45,7 +41,7 @@ async function fetchRecentVibes(venueKey, hours = 2) {
 
   const { data, error } = await supabase
     .from("vibes")
-    .select("crowd, ratio, line, cover, music, created_at")
+    .select("crowd, ratio, line, cover, drinks_price, music, bar_type, created_at")
     .eq("venue_id", venueKey)
     .gte("created_at", since)
     .order("created_at", { ascending: false })
@@ -98,6 +94,30 @@ function getMusicEmoji(music) {
   if (music.includes("Top Hits")) return "🔥";
   if (music.includes("Mixed")) return "🎶";
   return "🎵";
+}
+
+function getBarTypeEmoji(barType) {
+  if (!barType) return "";
+  switch (barType) {
+    case "cocktail": return "🍸";
+    case "sports": return "🏈";
+    case "dive": return "🍺";
+    case "wine": return "🍷";
+    case "speakeasy": return "🕵️";
+    default: return "";
+  }
+}
+
+function getBarTypeLabel(barType) {
+  if (!barType) return "";
+  switch (barType) {
+    case "cocktail": return "Cocktail";
+    case "sports": return "Sports";
+    case "dive": return "Dive";
+    case "wine": return "Wine";
+    case "speakeasy": return "Speakeasy";
+    default: return "";
+  }
 }
 
 function formatTimeAgo(dateString) {
@@ -197,6 +217,9 @@ export default function VenueDetailsLovable({
   const coverText = hasVibe ? latestVibe.cover : "Unknown";
   const musicText = hasVibe ? latestVibe.music : null;
   const musicEmoji = musicText ? getMusicEmoji(musicText) : "🎵";
+  const barType = hasVibe ? latestVibe.bar_type : null;
+  const barTypeEmoji = barType ? getBarTypeEmoji(barType) : "";
+  const barTypeLabel = barType ? getBarTypeLabel(barType) : "";
 
   const ratioPercent = hasVibe
     ? mapRatioToPercent(latestVibe.ratio)
@@ -228,7 +251,28 @@ export default function VenueDetailsLovable({
 
         {/* Glassy Card with Venue Info */}
         <View style={styles.glossyCard}>
-          <Text style={styles.venueName}>{venueName}</Text>
+          <View style={styles.venueNameRow}>
+            <Text style={styles.venueName}>{venueName}</Text>
+            <View style={styles.typeBadge}>
+              {(() => {
+                const venueType = venue?.venue_type ? venue.venue_type.trim().toLowerCase() : null;
+                if (!venueType) {
+                  console.warn(`[VenueDetails] Warning: venue "${venue?.name}" has null/undefined venue_type, defaulting to CLUB`);
+                }
+                const isClub = !venueType || venueType === "club";
+                return (
+                  <>
+                    <Text style={styles.typeBadgeEmoji}>
+                      {isClub ? "🪩" : "🍸"}
+                    </Text>
+                    <Text style={styles.typeBadgeText}>
+                      {isClub ? "CLUB" : "BAR"}
+                    </Text>
+                  </>
+                );
+              })()}
+            </View>
+          </View>
           <Text style={styles.venueAddress}>{fullAddress}</Text>
         </View>
 
@@ -253,7 +297,7 @@ export default function VenueDetailsLovable({
             <>
               <View style={styles.rightNowSummaryRow}>
                 <Text style={styles.rightNowSummaryText}>
-                  {crowdText} • {ratioText}{musicText ? ` • ${musicEmoji} ${musicText}` : ""}
+                  {crowdText} • {ratioText}{musicText ? ` • ${musicEmoji} ${musicText}` : ""}{barType ? ` • ${barTypeEmoji} ${barTypeLabel}` : ""}
                 </Text>
               </View>
               <View style={styles.rightNowRow}>
@@ -315,6 +359,9 @@ export default function VenueDetailsLovable({
             {recentVibes.slice(0, 10).map((vibe, index) => {
               const vibeMusicEmoji = vibe.music ? getMusicEmoji(vibe.music) : "";
               const vibeMusicText = vibe.music ? ` • ${vibeMusicEmoji} ${vibe.music}` : "";
+              const vibeBarTypeEmoji = vibe.bar_type ? getBarTypeEmoji(vibe.bar_type) : "";
+              const vibeBarTypeLabel = vibe.bar_type ? getBarTypeLabel(vibe.bar_type) : "";
+              const vibeBarTypeText = vibe.bar_type ? ` • ${vibeBarTypeEmoji} ${vibeBarTypeLabel}` : "";
               return (
                 <View key={index} style={styles.recentUpdateRow}>
                   <Text style={styles.recentUpdateEmoji}>
@@ -322,7 +369,7 @@ export default function VenueDetailsLovable({
                   </Text>
                   <View style={styles.recentUpdateContent}>
                     <Text style={styles.recentUpdateText}>
-                      {vibe.crowd} • {vibe.ratio}{vibeMusicText}
+                      {vibe.crowd} • {vibe.ratio}{vibeMusicText}{vibeBarTypeText}
                     </Text>
                     <Text style={styles.recentUpdateTime}>
                       {formatTimeAgo(vibe.created_at)}
@@ -413,11 +460,36 @@ const styles = StyleSheet.create({
     shadowRadius: 20,
     shadowOffset: { width: 0, height: 4 },
   },
+  venueNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 8,
+    flexWrap: "wrap",
+  },
   venueName: {
     color: "#F9FAFB",
     fontSize: 28,
     fontWeight: "700",
-    marginBottom: 8,
+  },
+  typeBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(168,85,247,0.15)",
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: "rgba(168,85,247,0.3)",
+    gap: 4,
+  },
+  typeBadgeEmoji: {
+    fontSize: 12,
+  },
+  typeBadgeText: {
+    color: "#A855F7",
+    fontSize: 11,
+    fontWeight: "600",
   },
   venueAddress: {
     color: "#9CA3AF",

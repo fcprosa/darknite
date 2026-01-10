@@ -39,6 +39,31 @@ function formatTimeAgoCompact(dateString) {
   return `${diffDays}d ago`;
 }
 
+function getBarTypeEmoji(barType) {
+  if (!barType) return "";
+  switch (barType) {
+    case "cocktail": return "🍸";
+    case "sports": return "🏈";
+    case "dive": return "🍺";
+    case "wine": return "🍷";
+    case "speakeasy": return "🕵️";
+    default: return "🍸";
+  }
+}
+
+function getBarTypeLabel(barType) {
+  if (!barType) return "";
+  return barType.charAt(0).toUpperCase() + barType.slice(1);
+}
+
+function getRatioEmoji(ratio) {
+  if (!ratio) return null;
+  if (ratio.includes("Mostly guys")) return "👥";
+  if (ratio.includes("Mostly girls")) return "👭";
+  if (ratio.includes("Balanced")) return "⚖️";
+  return null;
+}
+
 export default function VenueCardLovable({ venue, guys, girls, onPress, latestVibe }) {
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
@@ -46,6 +71,10 @@ export default function VenueCardLovable({ venue, guys, girls, onPress, latestVi
   const normalizedGuys = (typeof guys === 'number' && !isNaN(guys)) ? guys : 50;
   const normalizedGirls = (typeof girls === 'number' && !isNaN(girls)) ? girls : 50;
 
+  // Determine venue type
+  const venueType = venue?.venue_type ? venue.venue_type.trim().toLowerCase() : null;
+  const isBar = venueType === "bar";
+  
   // Get data from latestVibe
   const crowdLevel = latestVibe?.crowd || null;
   const crowdEmoji = crowdLevel ? getCrowdEmoji(crowdLevel) : "❓";
@@ -54,6 +83,14 @@ export default function VenueCardLovable({ venue, guys, girls, onPress, latestVi
   const musicText = latestVibe?.music || null;
   const musicEmoji = musicText ? getMusicEmoji(musicText) : "🎵";
   const timeAgo = latestVibe?.created_at ? formatTimeAgoCompact(latestVibe.created_at) : null;
+  
+  // Bar-specific fields
+  const barType = latestVibe?.bar_type || null;
+  const barTypeEmoji = barType ? getBarTypeEmoji(barType) : "—";
+  const barTypeLabel = barType ? getBarTypeLabel(barType) : "—";
+  const drinksPrice = latestVibe?.drinks_price || null;
+  const ratioText = latestVibe?.ratio || null;
+  const ratioEmoji = ratioText ? getRatioEmoji(ratioText) : null;
 
   const handlePressIn = () => {
     Animated.spring(scaleAnim, {
@@ -94,7 +131,28 @@ export default function VenueCardLovable({ venue, guys, girls, onPress, latestVi
         {/* Top Row: Name + Crowd Emoji + Live Status */}
         <View style={styles.topRow}>
           <View style={styles.leftSection}>
-            <Text style={styles.venueName}>{venue.name}</Text>
+            <View style={styles.nameRow}>
+              <Text style={styles.venueName}>{venue.name}</Text>
+              <View style={styles.typeBadge}>
+                {(() => {
+                  const venueType = venue?.venue_type ? venue.venue_type.trim().toLowerCase() : null;
+                  if (!venueType) {
+                    console.warn(`[VenueCard] Warning: venue "${venue.name}" has null/undefined venue_type, defaulting to CLUB`);
+                  }
+                  const isClub = !venueType || venueType === "club";
+                  return (
+                    <>
+                      <Text style={styles.typeBadgeEmoji}>
+                        {isClub ? "🪩" : "🍸"}
+                      </Text>
+                      <Text style={styles.typeBadgeText}>
+                        {isClub ? "CLUB" : "BAR"}
+                      </Text>
+                    </>
+                  );
+                })()}
+              </View>
+            </View>
             <Text style={styles.venueNeighborhood}>{venue.neighborhood}</Text>
           </View>
           <View style={styles.rightSection}>
@@ -113,29 +171,66 @@ export default function VenueCardLovable({ venue, guys, girls, onPress, latestVi
           </View>
         </View>
 
-        {/* Compact Icon Row */}
+        {/* Compact Icon Row - Different for bars vs clubs */}
         <View style={styles.iconRow}>
-          <View style={styles.iconItem}>
-            <Text style={styles.iconEmoji}>⏱</Text>
-            <Text style={styles.iconText}>{lineText}</Text>
-          </View>
-          <View style={styles.iconItem}>
-            <Text style={styles.iconEmoji}>💵</Text>
-            <Text style={styles.iconText}>{coverText}</Text>
-          </View>
-          {musicText && (
-            <View style={styles.iconItem}>
-              <Text style={styles.iconEmoji}>{musicEmoji}</Text>
-              <Text style={styles.iconText} numberOfLines={1}>{musicText}</Text>
-            </View>
+          {isBar ? (
+            // Bar icons: bar_type, drinks_price, music, ratio (if exists)
+            <>
+              <View style={styles.iconItem}>
+                <Text style={styles.iconEmoji}>{barTypeEmoji}</Text>
+                <Text style={styles.iconText}>{barTypeLabel}</Text>
+              </View>
+              <View style={styles.iconItem}>
+                <Text style={styles.iconEmoji}>🍹</Text>
+                <Text style={styles.iconText}>{drinksPrice || "—"}</Text>
+              </View>
+              <View style={styles.iconItem}>
+                <Text style={styles.iconEmoji}>{musicEmoji}</Text>
+                <Text style={styles.iconText} numberOfLines={1}>{musicText || "—"}</Text>
+              </View>
+              {ratioText && ratioEmoji && (
+                <View style={styles.iconItem}>
+                  <Text style={styles.iconEmoji}>{ratioEmoji}</Text>
+                  <Text style={styles.iconText} numberOfLines={1}>{ratioText}</Text>
+                </View>
+              )}
+            </>
+          ) : (
+            // Club icons: line, cover, music
+            <>
+              <View style={styles.iconItem}>
+                <Text style={styles.iconEmoji}>⏱</Text>
+                <Text style={styles.iconText}>{lineText}</Text>
+              </View>
+              <View style={styles.iconItem}>
+                <Text style={styles.iconEmoji}>💵</Text>
+                <Text style={styles.iconText}>{coverText}</Text>
+              </View>
+              {musicText && (
+                <View style={styles.iconItem}>
+                  <Text style={styles.iconEmoji}>{musicEmoji}</Text>
+                  <Text style={styles.iconText} numberOfLines={1}>{musicText}</Text>
+                </View>
+              )}
+            </>
           )}
         </View>
 
-        {/* Thin Ratio Bar */}
-        <View style={styles.ratioBar}>
-          <View style={[styles.ratioSegmentGuys, { flex: normalizedGuys }]} />
-          <View style={[styles.ratioSegmentGirls, { flex: normalizedGirls }]} />
-        </View>
+        {/* Thin Ratio Bar - Show for clubs always, for bars only if ratio exists */}
+        {(!isBar || ratioText) && (
+          <View style={styles.ratioBar}>
+            {ratioText ? (
+              // Show colored segments if ratio exists
+              <>
+                <View style={[styles.ratioSegmentGuys, { flex: normalizedGuys }]} />
+                <View style={[styles.ratioSegmentGirls, { flex: normalizedGirls }]} />
+              </>
+            ) : (
+              // Neutral style if ratio is missing (for clubs with no vibe yet)
+              <View style={styles.ratioSegmentNeutral} />
+            )}
+          </View>
+        )}
       </TouchableOpacity>
     </Animated.View>
   );
@@ -160,15 +255,41 @@ const styles = StyleSheet.create({
     flex: 1,
     marginRight: 12,
   },
+  nameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 2,
+    flexWrap: "wrap",
+  },
   venueName: {
     color: "#F9FAFB",
     fontSize: 16,
     fontWeight: "700",
-    marginBottom: 2,
+  },
+  typeBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(168,85,247,0.15)",
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderWidth: 1,
+    borderColor: "rgba(168,85,247,0.3)",
+    gap: 3,
+  },
+  typeBadgeEmoji: {
+    fontSize: 10,
+  },
+  typeBadgeText: {
+    color: "#A855F7",
+    fontSize: 10,
+    fontWeight: "600",
   },
   venueNeighborhood: {
     color: "#9CA3AF",
     fontSize: 12,
+    marginTop: 2,
   },
   rightSection: {
     alignItems: "flex-end",
@@ -229,5 +350,9 @@ const styles = StyleSheet.create({
   },
   ratioSegmentGirls: {
     backgroundColor: "#F973FF", // pink
+  },
+  ratioSegmentNeutral: {
+    flex: 1,
+    backgroundColor: "#374151", // neutral gray
   },
 });

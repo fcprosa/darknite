@@ -9,13 +9,13 @@ import {
   ScrollView,
   Animated,
   Easing,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
-import { createClient } from "@supabase/supabase-js";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
-
-const SUPABASE_URL = "https://uttcnvqhhmkfkccwjgnt.supabase.co";
-const SUPABASE_ANON_KEY = "sb_publishable_FRoLIm9eLIJYnjSMJ68KCw_hwr4zuiF";
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+import { useAuth } from "../contexts/AuthContext";
+import { supabase } from "../utils/supabase";
 
 // Helper functions for emojis
 function getCrowdEmoji(crowd) {
@@ -65,11 +65,15 @@ function VibeSummary({
   ratio,
   line,
   cover,
+  drinksPrice,
   music,
+  barType,
+  bartenderVibe,
   stayDuration,
   selectedTags,
   isFinalStep,
   isFormValid,
+  isBar,
 }) {
   const summaryScale = useRef(new Animated.Value(1)).current;
   const summaryGlow = useRef(new Animated.Value(0)).current;
@@ -116,13 +120,64 @@ function VibeSummary({
     outputRange: [0.3, 0.6],
   });
 
-  const requiredFields = [
-    { label: "Crowd", value: crowdLevel, emoji: getCrowdEmoji(crowdLevel) },
-    { label: "Ratio", value: ratio, emoji: getRatioEmoji(ratio) },
-    { label: "Line", value: line, emoji: getLineEmoji(line) },
-    { label: "Cover", value: cover, emoji: getCoverEmoji(cover) },
-    { label: "Music", value: music, emoji: getMusicEmoji(music) },
-  ];
+  function getBarTypeEmoji(bt) {
+    if (!bt) return "";
+    switch (bt) {
+      case "cocktail": return "🍸";
+      case "sports": return "🏈";
+      case "dive": return "🍺";
+      case "wine": return "🍷";
+      case "speakeasy": return "🕵️";
+      default: return "";
+    }
+  }
+  
+  function getBarTypeLabel(bt) {
+    if (!bt) return "";
+    return bt.charAt(0).toUpperCase() + bt.slice(1);
+  }
+  
+  // Build summary fields based on isBar boolean (not barType presence)
+  const requiredFields = [];
+  
+  if (isBar) {
+    // Bar summary: bar_type, crowd, drinks_price, music, (ratio if present), (bartender_vibe if present)
+    if (barType) {
+      requiredFields.push({
+        label: getBarTypeLabel(barType),
+        value: getBarTypeLabel(barType),
+        emoji: getBarTypeEmoji(barType),
+      });
+    }
+    requiredFields.push({ label: "Crowd", value: crowdLevel, emoji: getCrowdEmoji(crowdLevel) });
+    if (drinksPrice) {
+      requiredFields.push({ label: "Drinks", value: drinksPrice, emoji: "🍹" });
+    }
+    requiredFields.push({ label: "Music", value: music, emoji: getMusicEmoji(music) });
+    // Optional extras for bars
+    if (ratio) {
+      requiredFields.push({ label: "Ratio", value: ratio, emoji: getRatioEmoji(ratio) });
+    }
+    if (bartenderVibe) {
+      requiredFields.push({ label: "Bartender", value: bartenderVibe, emoji: "👨‍🍳" });
+    }
+  } else {
+    // Club summary: crowd, ratio, line, cover, music, (stay_duration/tags if present)
+    requiredFields.push({ label: "Crowd", value: crowdLevel, emoji: getCrowdEmoji(crowdLevel) });
+    requiredFields.push({ label: "Ratio", value: ratio, emoji: getRatioEmoji(ratio) });
+    requiredFields.push({ label: "Line", value: line, emoji: getLineEmoji(line) });
+    if (cover) {
+      requiredFields.push({ label: "Cover", value: cover, emoji: getCoverEmoji(cover) });
+    }
+    requiredFields.push({ label: "Music", value: music, emoji: getMusicEmoji(music) });
+    // Optional extras for clubs (only show if currently shown)
+    if (stayDuration) {
+      requiredFields.push({ label: "Stay", value: stayDuration, emoji: "⏱" });
+    }
+    if (selectedTags && selectedTags.length > 0) {
+      requiredFields.push({ label: "Tags", value: selectedTags.join(", "), emoji: "🏷" });
+    }
+  }
 
   return (
     <Animated.View
@@ -296,20 +351,77 @@ function OptionChip({ label, selected, onPress, large = false, hasSelection = fa
   );
 }
 
-export default function PostVibeScreen({ venue, onBack, onSuccess }) {
+const BAR_TYPE_OPTIONS = ["cocktail", "sports", "dive", "wine", "speakeasy"];
+
+export default function PostVibeScreen({ venue, navigation, onBack, onSuccess, route }) {
+  const { user, isAuthenticated } = useAuth();
+  const insets = useSafeAreaInsets();
   const [currentStep, setCurrentStep] = useState(0);
   const [crowdLevel, setCrowdLevel] = useState(null);
   const [ratio, setRatio] = useState(null);
   const [line, setLine] = useState(null);
-  const [cover, setCover] = useState(null);
+  const [cover, setCover] = useState(null); // For clubs only
+  const [drinksPrice, setDrinksPrice] = useState(null); // For bars only
   const [music, setMusic] = useState(null);
+  const [barType, setBarType] = useState(null);
+  const [bartenderVibe, setBartenderVibe] = useState(null); // For bars only, optional
   const [stayDuration, setStayDuration] = useState(null);
   const [selectedTags, setSelectedTags] = useState([]);
   const [showExtras, setShowExtras] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [venueType, setVenueType] = useState(null);
 
   // Animation for step transitions
   const fadeAnim = useRef(new Animated.Value(1)).current;
+
+  // Fetch venue_type if not provided - CRITICAL: must know venue type to build correct steps
+  useEffect(() => {
+    async function fetchVenueType() {
+      if (venue?.venue_type) {
+        // Normalize to lowercase
+        const normalized = venue.venue_type.trim().toLowerCase();
+        console.log("[PostVibe] Using venue_type from prop:", normalized);
+        if (normalized !== "club" && normalized !== "bar") {
+          console.warn(`[PostVibe] Warning: unexpected venue_type value "${normalized}" for venue "${venue.name}"`);
+        }
+        setVenueType(normalized);
+      } else if (venue?.id || venue?.name) {
+        // Fetch venue_type from database - REQUIRED for step building
+        console.log("[PostVibe] Fetching venue_type for:", venue.id || venue.name);
+        let query = supabase.from("venues").select("venue_type");
+        
+        if (venue.id) {
+          query = query.eq("id", venue.id);
+        } else if (venue.name) {
+          query = query.eq("name", venue.name);
+        }
+        
+        const { data, error } = await query.maybeSingle();
+        
+        if (!error && data) {
+          const normalized = data.venue_type ? data.venue_type.trim().toLowerCase() : null;
+          if (!normalized) {
+            console.warn(`[PostVibe] Warning: venue "${venue.name}" has null/undefined venue_type in database! Defaulting to "club"`);
+            setVenueType("club");
+          } else if (normalized !== "club" && normalized !== "bar") {
+            console.warn(`[PostVibe] Warning: unexpected venue_type value "${normalized}" for venue "${venue.name}"`);
+            setVenueType(normalized);
+          } else {
+            console.log("[PostVibe] Fetched venue_type:", normalized);
+            setVenueType(normalized);
+          }
+        } else {
+          console.error("[PostVibe] Error fetching venue_type:", error);
+          console.warn(`[PostVibe] Cannot fetch venue_type, defaulting to "club"`);
+          setVenueType("club");
+        }
+      } else {
+        console.error("[PostVibe] No venue object provided - cannot determine venue_type, defaulting to 'club'");
+        setVenueType("club");
+      }
+    }
+    fetchVenueType();
+  }, [venue]);
 
   // Reset all form state when component mounts or venue changes
   useEffect(() => {
@@ -318,7 +430,10 @@ export default function PostVibeScreen({ venue, onBack, onSuccess }) {
     setRatio(null);
     setLine(null);
     setCover(null);
+    setDrinksPrice(null);
     setMusic(null);
+    setBarType(null);
+    setBartenderVibe(null);
     setStayDuration(null);
     setSelectedTags([]);
     setShowExtras(false);
@@ -327,8 +442,28 @@ export default function PostVibeScreen({ venue, onBack, onSuccess }) {
 
   const crowdOptions = ["Dead", "Chill", "Fun", "Packed", "Chaos"];
   const ratioOptions = ["Mostly guys", "Balanced", "Mostly girls"];
-  const lineOptions = ["No line", "0–10 min", "10–30 min", "30+ min"];
-  const coverOptions = ["Free", "< $10", "$10–20", "$20+"];
+  const lineOptions = ["No line", "Short", "30+ min"];
+  
+  // Cover options for clubs (cover charge)
+  const clubCoverOptions = ["Free", "< $10", "$10-20", "$20-30", "$30+"];
+  // Drink price options for bars (UI labels - will be mapped to DB values)
+  const barDrinkPriceOptions = ["Free", "< $10", "$10-20", "$20-30", "$30+"];
+  
+  // Map UI label to DB value for drinks_price
+  const mapDrinksPriceToDB = (uiLabel) => {
+    if (!uiLabel) return null;
+    // Normalize en-dash to hyphen
+    const normalized = uiLabel.replace(/–/g, "-").trim();
+    const mapping = {
+      "Free": null, // Free drinks = null in DB
+      "< $10": "$",
+      "$10-20": "$$",
+      "$20-30": "$$$",
+      "$30+": "$$$$",
+    };
+    return mapping[normalized] ?? null;
+  };
+  
   const musicOptions = [
     "Hip-Hop / R&B",
     "Afrobeats",
@@ -345,9 +480,13 @@ export default function PostVibeScreen({ venue, onBack, onSuccess }) {
     "Cheap drinks",
     "Strong drinks",
   ];
-  // Step definitions
-  const REQUIRED_STEPS = 5;
-  const steps = [
+  const bartenderOptions = ["Polite", "Neutral", "Rude"];
+  
+  // Determine if venue is a bar
+  const isBar = venueType === "bar";
+  
+  // Separate step definitions for clubs vs bars
+  const CLUB_STEPS = [
     {
       id: "crowd",
       title: "Crowd level",
@@ -373,7 +512,7 @@ export default function PostVibeScreen({ venue, onBack, onSuccess }) {
       id: "cover",
       title: "Cover",
       value: cover,
-      options: coverOptions,
+      options: clubCoverOptions,
       setValue: setCover,
     },
     {
@@ -384,6 +523,44 @@ export default function PostVibeScreen({ venue, onBack, onSuccess }) {
       setValue: setMusic,
     },
   ];
+  
+  const BAR_STEPS = [
+    {
+      id: "bar_type",
+      title: "What type of bar is it tonight?",
+      value: barType,
+      options: BAR_TYPE_OPTIONS, // ["cocktail","sports","dive","wine","speakeasy"]
+      setValue: setBarType,
+    },
+    {
+      id: "crowd",
+      title: "Crowd level",
+      value: crowdLevel,
+      options: crowdOptions,
+      setValue: setCrowdLevel,
+    },
+    {
+      id: "drinks_price",
+      title: "Price of drinks",
+      value: drinksPrice,
+      options: barDrinkPriceOptions, // ["$","$$","$$$","$$$$"]
+      setValue: setDrinksPrice,
+    },
+    {
+      id: "music",
+      title: "Type of Music",
+      value: music,
+      options: musicOptions,
+      setValue: setMusic,
+    },
+  ];  
+  
+  // Use appropriate step array based on venue type
+  // For bars: only 4 required steps (bar_type, crowd, drinks_price, music)
+  // For clubs: 5 required steps (crowd, ratio, line, cover, music)
+  const steps = isBar ? BAR_STEPS : CLUB_STEPS;
+  // Calculate required steps (exclude optional ones from count)
+  const REQUIRED_STEPS = steps.filter(step => !step.optional).length;
 
   const handleSubmitVibe = async () => {
     if (!venue) {
@@ -391,8 +568,17 @@ export default function PostVibeScreen({ venue, onBack, onSuccess }) {
       return;
     }
 
-    if (!crowdLevel || !ratio || !line || !cover || !music) {
-      Alert.alert("Oops", "Please select crowd, ratio, line, cover, and music.");
+    // Validation: clubs need crowd, ratio, line, cover, music
+    // Bars need barType, crowd, drinksPrice, music (bartenderVibe is optional)
+    const requiredFieldsComplete = isBar
+      ? barType && crowdLevel && drinksPrice && music
+      : crowdLevel && ratio && line && cover && music;
+    
+    if (!requiredFieldsComplete) {
+      const message = isBar
+        ? "Please select bar type, crowd, drinks price, and music."
+        : "Please select crowd, ratio, line, cover, and music.";
+      Alert.alert("Oops", message);
       return;
     }
 
@@ -402,14 +588,60 @@ export default function PostVibeScreen({ venue, onBack, onSuccess }) {
 
       const vibeData = {
         venue_id: venueKey,
+        user_id: user.id, // Set user_id from authenticated user
         crowd: crowdLevel,
-        ratio,
-        line,
-        cover,
         music,
       };
-      if (stayDuration) vibeData.stay_duration = stayDuration;
-      if (selectedTags.length > 0) vibeData.tags = selectedTags;
+      
+      // Club-specific fields
+      if (!isBar) {
+        vibeData.ratio = ratio;
+        vibeData.line = line;
+        vibeData.cover = cover;
+        // DO NOT include bar-specific fields for clubs (let DB use defaults/NULL)
+        // Do not set bar_type, drinks_price, or bartender_vibe - omit them entirely
+      }
+      
+      // Bar-specific fields
+      if (isBar) {
+        vibeData.bar_type = barType;
+        // Map UI label to DB value for drinks_price
+        const dbDrinksPrice = mapDrinksPriceToDB(drinksPrice);
+        if (dbDrinksPrice !== null) {
+          vibeData.drinks_price = dbDrinksPrice;
+        } else if (drinksPrice === "Free") {
+          // Free = null in DB (allowed)
+          vibeData.drinks_price = null;
+        } else {
+          // Invalid or missing - log and set null
+          console.warn("[PostVibe] Invalid or missing drinksPrice for bar:", drinksPrice);
+          vibeData.drinks_price = null;
+        }
+        // Optional ratio for bars (from extras) - only include if set
+        if (ratio) {
+          vibeData.ratio = ratio;
+        }
+        // Optional bartender_vibe for bars (from extras) - only include if set
+        if (bartenderVibe) {
+          vibeData.bartender_vibe = bartenderVibe;
+        }
+        // Ensure club-only fields are null for bars
+        vibeData.line = null;
+        vibeData.cover = null;
+        vibeData.tags = null;
+        vibeData.stay_duration = null;
+      } else {
+        // Club-specific optional extras
+        if (stayDuration) vibeData.stay_duration = stayDuration;
+        if (selectedTags.length > 0) vibeData.tags = selectedTags;
+        // Ensure bar-only fields are null for clubs
+        vibeData.bar_type = null;
+        vibeData.drinks_price = null;
+        vibeData.bartender_vibe = null;
+      }
+
+      // Log final payload before insert (without secrets)
+      console.log("[PostVibe] Final payload:", JSON.stringify(vibeData, null, 2));
 
       const { data, error } = await supabase.from("vibes").insert([vibeData]);
 
@@ -423,11 +655,48 @@ export default function PostVibeScreen({ venue, onBack, onSuccess }) {
       // Only trigger success and navigate after successful insert
       console.log("Vibe gravado:", data);
       Alert.alert("Thanks!", "Your vibe was posted.");
-      if (onSuccess) onSuccess();
-      // Small delay to ensure state updates before navigation
+      
+      // Call onSuccess callback (which should refresh feed)
+      try {
+        if (onSuccess) {
+          onSuccess();
+        }
+      } catch (e) {
+        console.error("[PostVibe] Error in onSuccess callback:", e);
+      }
+      
+      // Close the screen safely after success and navigate based on origin
+      const handleSuccess = () => {
+        const origin = route?.params?.origin || 'home';
+        const tabNav = navigation?.getParent();
+        
+        if (origin === 'home') {
+          // Navigate back to Home tab and refresh
+          if (navigation?.canGoBack?.()) {
+            navigation.goBack();
+          } else if (tabNav) {
+            tabNav.navigate("HomeTab");
+          } else {
+            navigation?.navigate("HomeList");
+          }
+        } else {
+          // Other origins: use safe back handler
+          if (onBack) {
+            onBack();
+          } else if (navigation?.canGoBack?.()) {
+            navigation.goBack();
+          } else if (tabNav) {
+            tabNav.navigate("HomeTab");
+          } else {
+            navigation?.navigate("HomeList");
+          }
+        }
+      };
+      
+      // Small delay to ensure Alert is shown before navigation
       setTimeout(() => {
-        onBack();
-      }, 100);
+        handleSuccess();
+      }, 500);
     } catch (e) {
       console.error("Erro:", e);
       Alert.alert("Error", "Something went wrong.");
@@ -478,14 +747,36 @@ export default function PostVibeScreen({ venue, onBack, onSuccess }) {
   };
 
   const handleCancel = () => {
-    // Ensure venue state is preserved when canceling
-    onBack();
+    // Safe back handler - use onBack if provided (which should be the safe handler from App.js)
+    if (onBack) {
+      onBack();
+    } else if (navigation?.canGoBack?.()) {
+      navigation.goBack();
+    } else if (navigation) {
+      // Fallback if onBack not provided but navigation is available
+      if (navigation?.canGoBack?.()) {
+        navigation.goBack();
+      } else {
+        // Navigate to Home tab
+        const tabNav = navigation.getParent();
+        if (tabNav) {
+          tabNav.navigate("HomeTab");
+        } else {
+          navigation.navigate("HomeList");
+        }
+      }
+    }
   };
 
   const progress = Math.min((currentStep + 1) / REQUIRED_STEPS, 1);
-  // Only show final step when we're on the last required step AND all required fields (including music) are filled
-  const isOnFinalStep = currentStep === REQUIRED_STEPS - 1 && music !== null;
-  const isFormValid = crowdLevel && ratio && line && cover && music;
+  // Only show final step when we're on the last required step AND all required fields are filled
+  // For bars: barType, crowdLevel, drinksPrice, music are required (bartenderVibe is optional)
+  // For clubs: crowdLevel, ratio, line, cover, music are required
+  const requiredFieldsValid = isBar
+    ? barType && crowdLevel && drinksPrice && music
+    : crowdLevel && ratio && line && cover && music;
+  const isOnFinalStep = currentStep === REQUIRED_STEPS - 1 && requiredFieldsValid;
+  const isFormValid = requiredFieldsValid;
 
   const toggleTag = (tag) => {
     setSelectedTags((prev) =>
@@ -521,62 +812,132 @@ export default function PostVibeScreen({ venue, onBack, onSuccess }) {
             </TouchableOpacity>
             {showExtras && (
               <View style={styles.extrasAccordionContent}>
-                {/* Stay Duration */}
-                <View style={styles.extrasItem}>
-                  <Text style={styles.extrasLabel}>Stay duration</Text>
-                  <View style={styles.extrasOptionsRow}>
-                    {stayDurationOptions.map((opt) => (
-                      <TouchableOpacity
-                        key={opt}
-                        style={[
-                          styles.extrasChip,
-                          stayDuration === opt && styles.extrasChipSelected,
-                        ]}
-                        onPress={() => {
-                          setStayDuration(stayDuration === opt ? null : opt);
-                          try {
-                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                          } catch (e) {}
-                        }}
-                      >
-                        <Text
-                          style={[
-                            styles.extrasChipText,
-                            stayDuration === opt && styles.extrasChipTextSelected,
-                          ]}
-                        >
-                          {opt}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </View>
+                {isBar ? (
+                  // Bar extras: ratio (optional) and bartender_vibe (optional)
+                  <>
+                    {/* Ratio (optional for bars) */}
+                    <View style={styles.extrasItem}>
+                      <Text style={styles.extrasLabel}>Ratio (optional)</Text>
+                      <View style={styles.extrasOptionsRow}>
+                        {ratioOptions.map((opt) => (
+                          <TouchableOpacity
+                            key={opt}
+                            style={[
+                              styles.extrasChip,
+                              ratio === opt && styles.extrasChipSelected,
+                            ]}
+                            onPress={() => {
+                              setRatio(ratio === opt ? null : opt);
+                              try {
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              } catch (e) {}
+                            }}
+                          >
+                            <Text
+                              style={[
+                                styles.extrasChipText,
+                                ratio === opt && styles.extrasChipTextSelected,
+                              ]}
+                            >
+                              {opt}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
 
-                {/* Quick Tags */}
-                <View style={styles.extrasItem}>
-                  <Text style={styles.extrasLabel}>Quick tags</Text>
-                  <View style={styles.extrasOptionsRow}>
-                    {tagOptions.map((tag) => (
-                      <TouchableOpacity
-                        key={tag}
-                        style={[
-                          styles.extrasChip,
-                          selectedTags.includes(tag) && styles.extrasChipSelected,
-                        ]}
-                        onPress={() => toggleTag(tag)}
-                      >
-                        <Text
-                          style={[
-                            styles.extrasChipText,
-                            selectedTags.includes(tag) && styles.extrasChipTextSelected,
-                          ]}
-                        >
-                          {tag}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </View>
+                    {/* Bartender Vibe (optional for bars) */}
+                    <View style={styles.extrasItem}>
+                      <Text style={styles.extrasLabel}>Bartender vibe</Text>
+                      <View style={styles.extrasOptionsRow}>
+                        {bartenderOptions.map((opt) => (
+                          <TouchableOpacity
+                            key={opt}
+                            style={[
+                              styles.extrasChip,
+                              bartenderVibe === opt && styles.extrasChipSelected,
+                            ]}
+                            onPress={() => {
+                              setBartenderVibe(bartenderVibe === opt ? null : opt);
+                              try {
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              } catch (e) {}
+                            }}
+                          >
+                            <Text
+                              style={[
+                                styles.extrasChipText,
+                                bartenderVibe === opt && styles.extrasChipTextSelected,
+                              ]}
+                            >
+                              {opt}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
+                  </>
+                ) : (
+                  // Club extras: stay_duration and tags (existing)
+                  <>
+                    {/* Stay Duration */}
+                    <View style={styles.extrasItem}>
+                      <Text style={styles.extrasLabel}>Stay duration</Text>
+                      <View style={styles.extrasOptionsRow}>
+                        {stayDurationOptions.map((opt) => (
+                          <TouchableOpacity
+                            key={opt}
+                            style={[
+                              styles.extrasChip,
+                              stayDuration === opt && styles.extrasChipSelected,
+                            ]}
+                            onPress={() => {
+                              setStayDuration(stayDuration === opt ? null : opt);
+                              try {
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              } catch (e) {}
+                            }}
+                          >
+                            <Text
+                              style={[
+                                styles.extrasChipText,
+                                stayDuration === opt && styles.extrasChipTextSelected,
+                              ]}
+                            >
+                              {opt}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
+
+                    {/* Quick Tags */}
+                    <View style={styles.extrasItem}>
+                      <Text style={styles.extrasLabel}>Quick tags</Text>
+                      <View style={styles.extrasOptionsRow}>
+                        {tagOptions.map((tag) => (
+                          <TouchableOpacity
+                            key={tag}
+                            style={[
+                              styles.extrasChip,
+                              selectedTags.includes(tag) && styles.extrasChipSelected,
+                            ]}
+                            onPress={() => toggleTag(tag)}
+                          >
+                            <Text
+                              style={[
+                                styles.extrasChipText,
+                                selectedTags.includes(tag) && styles.extrasChipTextSelected,
+                              ]}
+                            >
+                              {tag}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
+                  </>
+                )}
               </View>
             )}
           </View>
@@ -606,19 +967,26 @@ export default function PostVibeScreen({ venue, onBack, onSuccess }) {
           {step.options.map((opt) => {
             const isSelected = step.value === opt;
             const isLastStep = currentStep === REQUIRED_STEPS - 1;
+            // Format label for bar_type options (capitalize first letter)
+            const displayLabel = step.id === "bar_type"
+              ? opt.charAt(0).toUpperCase() + opt.slice(1)
+              : opt;
             return (
               <OptionChip
                 key={opt}
-                label={opt}
+                label={displayLabel}
                 selected={isSelected}
                 onPress={() => {
                   if (isSelected) {
                     // Deselect and stay on same step
                     step.setValue(null);
                   } else {
-                    // Select the value
+                    // Select the value (use original opt value, not displayLabel)
                     step.setValue(opt);
-                    // Only auto-advance if NOT on the last step (music step)
+                    // Only auto-advance if NOT on the last step
+                    // On the last step, selecting a value will show the confirmation screen via isOnFinalStep
+                    // For optional steps (bartender_vibe), also allow advancing to final step
+                    // Auto-advance if not on last step
                     // On the last step, selecting a value will show the confirmation screen via isOnFinalStep
                     if (!isLastStep) {
                       // Small delay to show selection animation before advancing
@@ -628,7 +996,7 @@ export default function PostVibeScreen({ venue, onBack, onSuccess }) {
                     }
                   }
                 }}
-                large={true}
+                large={step.id === "music" || step.id === "bar_type"}
                 hasSelection={hasSelection}
               />
             );
@@ -639,106 +1007,120 @@ export default function PostVibeScreen({ venue, onBack, onSuccess }) {
   };
 
   return (
-    <View style={styles.container}>
-      {/* Drag Handle */}
-      <View style={styles.dragHandleContainer}>
-        <View style={styles.dragHandle} />
-      </View>
-
-      {/* Header */}
-      <View style={styles.header}>
-        {currentStep > 0 ? (
-          <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-            <Text style={styles.backButtonText}>←</Text>
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.backButton} />
-        )}
-        <View style={styles.headerTitleContainer}>
-          <Text style={styles.headerTitle}>Post your vibe 🔥</Text>
-        </View>
-        <TouchableOpacity style={styles.closeButton} onPress={handleCancel}>
-          <Text style={styles.closeButtonText}>✕</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Progress Indicator - Hide on final step */}
-      {!isOnFinalStep && (
-        <View style={styles.progressContainer}>
-          <Text style={styles.progressText}>
-            Step {currentStep + 1}/{REQUIRED_STEPS}
-          </Text>
-          <View style={styles.progressBar}>
-            <Animated.View
-              style={[
-                styles.progressFill,
-                {
-                  width: `${progress * 100}%`,
-                },
-              ]}
-            />
+    <SafeAreaView style={styles.safeArea} edges={['top']}>
+      <KeyboardAvoidingView
+        style={styles.keyboardAvoidingView}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
+      >
+        <View style={styles.container}>
+          {/* Drag Handle */}
+          <View style={styles.dragHandleContainer}>
+            <View style={styles.dragHandle} />
           </View>
-        </View>
-      )}
 
-      {/* Vibe Summary - Prominent on final step */}
-      <VibeSummary
-        crowdLevel={crowdLevel}
-        ratio={ratio}
-        line={line}
-        cover={cover}
-        music={music}
-        stayDuration={stayDuration}
-        selectedTags={selectedTags}
-        isFinalStep={isOnFinalStep}
-        isFormValid={isFormValid}
-      />
-
-      {/* Step Content */}
-      <View style={styles.contentWrapper}>
-        {isOnFinalStep ? (
-          <ScrollView
-            style={styles.contentContainerScrollView}
-            contentContainerStyle={styles.contentContainerScroll}
-            showsVerticalScrollIndicator={false}
-          >
-            {renderStepContent()}
-          </ScrollView>
-        ) : (
-          <Animated.View
-            style={[
-              styles.contentContainer,
-              {
-                opacity: fadeAnim,
-              },
-            ]}
-          >
-            {renderStepContent()}
-          </Animated.View>
-        )}
-      </View>
-
-      {/* Navigation Footer - Submit button on final step */}
-      {isOnFinalStep && (
-        <SafeAreaView style={styles.footerSafeArea}>
-          <View style={styles.footer}>
-            <TouchableOpacity
-              style={[
-                styles.submitButton,
-                (!isFormValid || submitting) && styles.submitButtonDisabled,
-              ]}
-              onPress={handleSubmitVibe}
-              disabled={!isFormValid || submitting}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.submitButtonText}>
-                {submitting ? "Submitting..." : "Submit vibe 🔥"}
-              </Text>
+          {/* Header */}
+          <View style={styles.header}>
+            {currentStep > 0 ? (
+              <TouchableOpacity style={styles.backButton} onPress={handleBack}>
+                <Text style={styles.backButtonText}>←</Text>
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.backButton} />
+            )}
+            <View style={styles.headerTitleContainer}>
+              <Text style={styles.headerTitle}>Post your vibe 🔥</Text>
+            </View>
+            <TouchableOpacity style={styles.closeButton} onPress={handleCancel}>
+              <Text style={styles.closeButtonText}>✕</Text>
             </TouchableOpacity>
           </View>
-        </SafeAreaView>
-      )}
-    </View>
+
+          {/* Progress Indicator - Hide on final step */}
+          {!isOnFinalStep && (
+            <View style={styles.progressContainer}>
+              <Text style={styles.progressText}>
+                Step {currentStep + 1}/{REQUIRED_STEPS}
+              </Text>
+              <View style={styles.progressBar}>
+                <Animated.View
+                  style={[
+                    styles.progressFill,
+                    {
+                      width: `${progress * 100}%`,
+                    },
+                  ]}
+                />
+              </View>
+            </View>
+          )}
+
+          {/* Vibe Summary - Prominent on final step */}
+          <VibeSummary
+            crowdLevel={crowdLevel}
+            ratio={ratio}
+            line={line}
+            cover={cover}
+            drinksPrice={drinksPrice}
+            music={music}
+            barType={barType}
+            bartenderVibe={bartenderVibe}
+            stayDuration={stayDuration}
+            selectedTags={selectedTags}
+            isFinalStep={isOnFinalStep}
+            isFormValid={isFormValid}
+            isBar={isBar}
+          />
+
+          {/* Step Content */}
+          <View style={styles.contentWrapper}>
+            {isOnFinalStep ? (
+              <ScrollView
+                style={styles.contentContainerScrollView}
+                contentContainerStyle={[
+                  styles.contentContainerScroll,
+                  { paddingBottom: Math.max(insets.bottom, 120) }
+                ]}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+              >
+                {renderStepContent()}
+              </ScrollView>
+            ) : (
+              <Animated.View
+                style={[
+                  styles.contentContainer,
+                  {
+                    opacity: fadeAnim,
+                  },
+                ]}
+              >
+                {renderStepContent()}
+              </Animated.View>
+            )}
+          </View>
+
+          {/* Sticky Submit Button - Always visible at bottom */}
+          {isOnFinalStep && (
+            <View style={[styles.submitButtonContainer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+              <TouchableOpacity
+                style={[
+                  styles.submitButton,
+                  (!isFormValid || submitting) && styles.submitButtonDisabled,
+                ]}
+                onPress={handleSubmitVibe}
+                disabled={!isFormValid || submitting}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.submitButtonText}>
+                  {submitting ? "Submitting..." : "Submit vibe 🔥"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
@@ -877,7 +1259,7 @@ const styles = StyleSheet.create({
   contentContainerScroll: {
     flexGrow: 1,
     justifyContent: "center",
-    paddingBottom: 16,
+    paddingBottom: 100, // Space for sticky submit button
   },
   stepContent: {
     paddingVertical: 20,
@@ -942,16 +1324,33 @@ const styles = StyleSheet.create({
     color: "#F9FAFB",
     fontWeight: "700",
   },
-  footerSafeArea: {
+  safeArea: {
+    flex: 1,
     backgroundColor: "#050013",
+  },
+  keyboardAvoidingView: {
+    flex: 1,
+  },
+  submitButtonContainer: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(5,0,19,0.95)",
+    borderTopWidth: 1,
+    borderTopColor: "rgba(124,58,237,0.3)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+    paddingHorizontal: 16,
+    paddingTop: 16,
   },
   footer: {
     paddingHorizontal: 16,
     paddingTop: 16,
-    paddingBottom: 16,
-    borderTopWidth: 1,
-    borderTopColor: "rgba(124,58,237,0.3)",
-    backgroundColor: "#050013",
+    paddingBottom: 8,
   },
   footerButtonsRow: {
     flexDirection: "row",

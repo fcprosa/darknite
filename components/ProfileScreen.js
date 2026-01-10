@@ -6,13 +6,11 @@ import {
   ScrollView,
   TouchableOpacity,
   FlatList,
+  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { createClient } from "@supabase/supabase-js";
-
-const SUPABASE_URL = "https://uttcnvqhhmkfkccwjgnt.supabase.co";
-const SUPABASE_ANON_KEY = "sb_publishable_FRoLIm9eLIJYnjSMJ68KCw_hwr4zuiF";
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+import { useAuth } from "../contexts/AuthContext";
+import { supabase } from "../utils/supabase";
 
 async function fetchUserVibes(userId) {
   if (!userId) return [];
@@ -53,27 +51,50 @@ function formatTimeAgo(dateString) {
 }
 
 export default function ProfileScreen({ navigation }) {
+  const { user, isAuthenticated, signOut, setShowAuthModal } = useAuth();
   const [userVibes, setUserVibes] = useState([]);
-  const [isGuest, setIsGuest] = useState(true);
-  const [userEmail, setUserEmail] = useState(null);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    // Check if user is logged in
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        setIsGuest(false);
-        setUserEmail(session.user.email);
-        // Fetch user vibes if user_id exists in vibes table
-        fetchUserVibes(session.user.id).then(setUserVibes);
-      } else {
-        setIsGuest(true);
-        setUserVibes([]);
-      }
-    });
-  }, []);
+    if (isAuthenticated && user?.id) {
+      setLoading(true);
+      fetchUserVibes(user.id).then((vibes) => {
+        setUserVibes(vibes);
+        setLoading(false);
+      });
+    } else {
+      setUserVibes([]);
+    }
+  }, [isAuthenticated, user?.id]);
+
+  const handleSignIn = () => {
+    setShowAuthModal(true);
+  };
+
+  const handleSavedVenues = () => {
+    if (!isAuthenticated) {
+      Alert.alert(
+        "Sign in required",
+        "Please sign in to save venues",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Sign in", onPress: handleSignIn },
+        ]
+      );
+      return;
+    }
+    // TODO: Navigate to saved venues screen
+    Alert.alert("Coming soon", "Saved venues feature coming soon!");
+  };
+
+  const handleSettings = () => {
+    navigation.navigate("Settings");
+  };
 
   const vibeCount = userVibes.length;
-  const userName = isGuest ? "Guest" : (userEmail?.split("@")[0] || "User");
+  const userName = isAuthenticated
+    ? user?.email?.split("@")[0] || user?.user_metadata?.full_name || "User"
+    : "Guest";
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
@@ -86,9 +107,15 @@ export default function ProfileScreen({ navigation }) {
           </View>
         </View>
         <Text style={styles.userName}>{userName}</Text>
-        {isGuest && (
-          <TouchableOpacity style={styles.signInButton}>
+        {!isAuthenticated && (
+          <TouchableOpacity style={styles.signInButton} onPress={handleSignIn}>
             <Text style={styles.signInButtonText}>Sign in to post vibes</Text>
+          </TouchableOpacity>
+        )}
+        {isAuthenticated && (
+          <TouchableOpacity style={styles.settingsButton} onPress={handleSettings}>
+            <Ionicons name="settings-outline" size={20} color="#A855F7" />
+            <Text style={styles.settingsButtonText}>Settings</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -115,7 +142,7 @@ export default function ProfileScreen({ navigation }) {
           <Ionicons name="create-outline" size={20} color="#A855F7" />
           <Text style={styles.actionButtonText}>Edit profile</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.actionButton}>
+        <TouchableOpacity style={styles.actionButton} onPress={handleSavedVenues}>
           <Ionicons name="bookmark-outline" size={20} color="#A855F7" />
           <Text style={styles.actionButtonText}>Saved venues</Text>
         </TouchableOpacity>
@@ -202,6 +229,22 @@ const styles = StyleSheet.create({
   },
   signInButtonText: {
     color: "#F9FAFB",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  settingsButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(168,85,247,0.1)",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "rgba(168,85,247,0.3)",
+    gap: 6,
+  },
+  settingsButtonText: {
+    color: "#A855F7",
     fontSize: 14,
     fontWeight: "600",
   },
