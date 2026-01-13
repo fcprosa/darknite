@@ -156,8 +156,14 @@ export default function VenueDetailsLovable({
   // Defensive checks: ensure venue properties are defined
   // Only show "Unknown Venue" if venue exists but name is genuinely missing
   const venueName = venue?.name || "Unknown Venue";
+  const venueAddress = venue?.address || null;
+  const venueCity = venue?.city || "New York";
   const venueNeighborhood = venue?.neighborhood || "NYC";
-  const fullAddress = `${venueName}, ${venueNeighborhood}, NYC`;
+  
+  // Build address string for Maps: prefer address, fallback to neighborhood
+  const fullAddress = venueAddress
+    ? `${venueName}, ${venueAddress}, ${venueCity}`
+    : `${venueName}, ${venueNeighborhood}, ${venueCity}`;
 
   const hasVibe = !!latestVibe;
   const vibeCount = recentVibes.length;

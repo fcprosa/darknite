@@ -40,7 +40,7 @@ export async function getAllVenues() {
   try {
     const { data, error } = await supabase
       .from("venues")
-      .select("id, name, neighborhood, default_guys, default_girls, venue_type, lat, lng")
+      .select("id, name, neighborhood, default_guys, default_girls, venue_type, address, city")
       .order("name", { ascending: true });
 
     if (error) {
@@ -68,8 +68,8 @@ export async function getAllVenues() {
         guys: row.default_guys ?? 50,
         girls: row.default_girls ?? 50,
         venue_type: venueType,
-        lat: row.lat || null,
-        lng: row.lng || null,
+        address: row.address || null,
+        city: row.city || null,
       };
     });
   } catch (error) {
@@ -106,6 +106,8 @@ export async function getVenuesByType(venueType) {
       guys: row.default_guys ?? 50,
       girls: row.default_girls ?? 50,
       venue_type: row.venue_type ? row.venue_type.trim().toLowerCase() : null,
+      address: row.address || null,
+      city: row.city || null,
     }));
   } catch (error) {
     log.error("Exception fetching venues by type:", { count: 0, "error.code": error.code, "error.message": error.message, venueType });
@@ -124,7 +126,7 @@ export async function getVenueById(venueId) {
   try {
     const { data, error } = await supabase
       .from("venues")
-      .select("id, name, neighborhood, default_guys, default_girls, venue_type")
+      .select("id, name, neighborhood, default_guys, default_girls, venue_type, address, city")
       .eq("id", venueId)
       .maybeSingle();
 
@@ -145,6 +147,8 @@ export async function getVenueById(venueId) {
       guys: data.default_guys ?? 50,
       girls: data.default_girls ?? 50,
       venue_type: data.venue_type ? data.venue_type.trim().toLowerCase() : null,
+      address: data.address || null,
+      city: data.city || null,
     };
   } catch (error) {
     log.error("Exception fetching venue by ID:", { count: 0, "error.code": error.code, "error.message": error.message, venueId });
@@ -192,7 +196,7 @@ export async function getVenuesByIds(venueIds) {
   try {
     const { data, error } = await supabase
       .from("venues")
-      .select("id, name, neighborhood, default_guys, default_girls, venue_type")
+      .select("id, name, neighborhood, default_guys, default_girls, venue_type, address, city")
       .in("id", venueIds);
 
     if (error) {
@@ -210,6 +214,8 @@ export async function getVenuesByIds(venueIds) {
       guys: row.default_guys ?? 50,
       girls: row.default_girls ?? 50,
       venue_type: row.venue_type ? row.venue_type.trim().toLowerCase() : null,
+      address: row.address || null,
+      city: row.city || null,
     }));
   } catch (error) {
     log.error("Exception fetching venues by IDs:", { count: 0, "error.code": error.code, "error.message": error.message, requestedCount: venueIds.length });
@@ -227,7 +233,7 @@ export async function getVenuesByTypeAndNeighborhood(venueType, neighborhood) {
   try {
     const { data, error } = await supabase
       .from("venues")
-      .select("id, name, neighborhood, default_guys, default_girls, venue_type")
+      .select("id, name, neighborhood, default_guys, default_girls, venue_type, address, city")
       .eq("venue_type", venueType)
       .eq("neighborhood", neighborhood)
       .order("name", { ascending: true });
@@ -247,6 +253,8 @@ export async function getVenuesByTypeAndNeighborhood(venueType, neighborhood) {
       guys: row.default_guys ?? 50,
       girls: row.default_girls ?? 50,
       venue_type: row.venue_type ? row.venue_type.trim().toLowerCase() : null,
+      address: row.address || null,
+      city: row.city || null,
     }));
   } catch (error) {
     log.error("Exception fetching venues by type and neighborhood:", { count: 0, "error.code": error.code, "error.message": error.message, venueType, neighborhood });

@@ -1,11 +1,31 @@
-# Sample Snack app
+# DarkNite
 
-Open the `App.js` file to start writing some code. You can preview the changes directly on your phone or tablet by scanning the **QR code** or use the iOS or Android emulators. When you're done, click **Save** and share the link!
+DarkNite is a React Native app for discovering nightlife venues and sharing real-time vibes.
 
-When you're ready to see everything that Expo provides (or if you want to use your own editor) you can **Download** your project and use it with [expo cli](https://docs.expo.dev/get-started/installation/#expo-cli)).
+## Setup
 
-All projects created in Snack are publicly available, so you can easily share the link to this project via link, or embed it on a web page with the `<>` button.
+1. Install dependencies:
+   ```bash
+   npm install
+   ```
 
-If you're having problems, you can tweet to us [@expo](https://twitter.com/expo) or ask in our [forums](https://forums.expo.dev/c/expo-dev-tools/61) or [Discord](https://chat.expo.dev/).
+2. Set up environment variables:
+   - Create a `.env` file in the root directory
+   - Add your Supabase credentials:
+     ```
+     EXPO_PUBLIC_SUPABASE_URL=your_supabase_url
+     EXPO_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+     ```
 
-Snack is Open Source. You can find the code on the [GitHub repo](https://github.com/expo/snack).
+3. Run the app:
+   ```bash
+   npm start
+   ```
+
+## Database
+
+### Venues
+
+Venues require `address` for accurate Maps linking. Recommended format: "Street, New York, NY ZIP, USA".
+
+The `address` field is used for Maps deep-links. If `address` is not provided, the app falls back to using the venue name and neighborhood.
