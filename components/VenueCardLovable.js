@@ -25,7 +25,7 @@ function getCrowdEmoji(crowd) {
     case "Fun": return "😄";
     case "Packed": return "🔥";
     case "Chaos": return "⚡";
-    default: return "❓";
+    default: return null;
   }
 }
 
@@ -62,9 +62,13 @@ export default function VenueCardLovable({ venue, guys, girls, onPress, latestVi
   const venueTypeValidation = validateVenueType(venue?.venue_type);
   const venueType = venueTypeValidation.valid ? venueTypeValidation.type : null;
   const isBar = isBarHelper(venue?.venue_type);
+  const isClub = venueType === 'club';
   
   // Get ratio display info using helper
   const ratioInfo = getDisplayRatio(venue, latestVibe);
+  
+  // Check if we have vibe data
+  const hasVibe = !!latestVibe;
   
   // Log error if venue type is invalid (for monitoring)
   if (!venueTypeValidation.valid) {
@@ -75,7 +79,7 @@ export default function VenueCardLovable({ venue, guys, girls, onPress, latestVi
   
   // Get data from latestVibe
   const crowdLevel = latestVibe?.crowd || null;
-  const crowdEmoji = crowdLevel ? getCrowdEmoji(crowdLevel) : "❓";
+  const crowdEmoji = crowdLevel ? getCrowdEmoji(crowdLevel) : null;
   const lineText = getDisplayValue(latestVibe?.line, "No line");
   const coverText = getDisplayValue(latestVibe?.cover, "Free");
   const musicText = latestVibe?.music || null;
@@ -178,8 +182,10 @@ export default function VenueCardLovable({ venue, guys, girls, onPress, latestVi
             <Text style={styles.venueNeighborhood}>{venue.neighborhood}</Text>
           </View>
           <View style={styles.rightSection}>
-            {/* Prominent Crowd Emoji */}
-            <Text style={styles.crowdEmoji}>{crowdEmoji}</Text>
+            {/* Prominent Crowd Emoji - only show if we have vibe data */}
+            {crowdEmoji && (
+              <Text style={styles.crowdEmoji}>{crowdEmoji}</Text>
+            )}
             {/* LIVE dot + time */}
             {timeAgo && (
               <View style={styles.liveStatus}>
@@ -368,8 +374,20 @@ const styles = StyleSheet.create({
   ratioSegmentGirls: {
     backgroundColor: "#F973FF", // pink
   },
-  ratioSegmentNeutral: {
-    flex: 1,
-    backgroundColor: "#374151", // neutral gray
+  noVibesContainer: {
+    marginTop: 8,
+    marginBottom: 8,
+    paddingVertical: 8,
+    alignItems: "center",
+  },
+  noVibesText: {
+    color: "rgba(156, 163, 175, 0.6)",
+    fontSize: 12,
+    fontWeight: "500",
+    marginBottom: 2,
+  },
+  noVibesSubtext: {
+    color: "rgba(156, 163, 175, 0.5)",
+    fontSize: 11,
   },
 });
