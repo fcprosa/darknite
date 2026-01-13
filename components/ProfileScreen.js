@@ -11,7 +11,8 @@ import {
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../contexts/AuthContext";
-import { supabase } from "../utils/supabase";
+import { getUserVibes } from "../services/vibeService";
+import { getUserProfile } from "../services/profileService";
 import { formatTimeAgo } from "../utils/timeHelpers";
 
 // Get AppContext - we'll need to import it from App.js or create a hook

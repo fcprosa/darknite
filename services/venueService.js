@@ -44,11 +44,15 @@ export async function getAllVenues() {
       .order("name", { ascending: true });
 
     if (error) {
-      log.error("Error fetching venues:", error.message);
+      log.error("Error fetching venues:", { count: 0, "error.code": error.code, "error.message": error.message });
       return FALLBACK_VENUES;
     }
 
+    const count = data?.length || 0;
+    log.log("getAllVenues success:", { count, "error.code": null, "error.message": null });
+
     if (!data || data.length === 0) {
+      log.warn("getAllVenues returned empty result, using fallback");
       return FALLBACK_VENUES;
     }
 
@@ -69,7 +73,7 @@ export async function getAllVenues() {
       };
     });
   } catch (error) {
-    log.error("Exception fetching venues:", error);
+    log.error("Exception fetching venues:", { count: 0, "error.code": error.code, "error.message": error.message });
     return FALLBACK_VENUES;
   }
 }
@@ -88,9 +92,12 @@ export async function getVenuesByType(venueType) {
       .order("name", { ascending: true });
 
     if (error) {
-      log.error("Error fetching venues by type:", error.message);
+      log.error("Error fetching venues by type:", { count: 0, "error.code": error.code, "error.message": error.message, venueType });
       return [];
     }
+
+    const count = data?.length || 0;
+    log.log("getVenuesByType success:", { count, "error.code": null, "error.message": null, venueType });
 
     return (data || []).map((row) => ({
       id: row.id,
@@ -101,7 +108,7 @@ export async function getVenuesByType(venueType) {
       venue_type: row.venue_type ? row.venue_type.trim().toLowerCase() : null,
     }));
   } catch (error) {
-    log.error("Exception fetching venues by type:", error);
+    log.error("Exception fetching venues by type:", { count: 0, "error.code": error.code, "error.message": error.message, venueType });
     return [];
   }
 }
@@ -122,9 +129,12 @@ export async function getVenueById(venueId) {
       .maybeSingle();
 
     if (error) {
-      log.error("Error fetching venue by ID:", error.message);
+      log.error("Error fetching venue by ID:", { count: 0, "error.code": error.code, "error.message": error.message, venueId });
       return null;
     }
+
+    const count = data ? 1 : 0;
+    log.log("getVenueById success:", { count, "error.code": null, "error.message": null, venueId });
 
     if (!data) return null;
 
@@ -137,7 +147,7 @@ export async function getVenueById(venueId) {
       venue_type: data.venue_type ? data.venue_type.trim().toLowerCase() : null,
     };
   } catch (error) {
-    log.error("Exception fetching venue by ID:", error);
+    log.error("Exception fetching venue by ID:", { count: 0, "error.code": error.code, "error.message": error.message, venueId });
     return null;
   }
 }
@@ -158,13 +168,15 @@ export async function getVenueType(venueId) {
       .maybeSingle();
 
     if (error) {
-      log.error("Error fetching venue type:", error.message);
+      log.error("Error fetching venue type:", { count: 0, "error.code": error.code, "error.message": error.message, venueId });
       return null;
     }
 
+    const count = data ? 1 : 0;
+    log.log("getVenueType success:", { count, "error.code": null, "error.message": null, venueId });
     return data?.venue_type ? data.venue_type.trim().toLowerCase() : null;
   } catch (error) {
-    log.error("Exception fetching venue type:", error);
+    log.error("Exception fetching venue type:", { count: 0, "error.code": error.code, "error.message": error.message, venueId });
     return null;
   }
 }
@@ -184,9 +196,12 @@ export async function getVenuesByIds(venueIds) {
       .in("id", venueIds);
 
     if (error) {
-      log.error("Error fetching venues by IDs:", error.message);
+      log.error("Error fetching venues by IDs:", { count: 0, "error.code": error.code, "error.message": error.message, requestedCount: venueIds.length });
       return [];
     }
+
+    const count = data?.length || 0;
+    log.log("getVenuesByIds success:", { count, "error.code": null, "error.message": null, requestedCount: venueIds.length });
 
     return (data || []).map((row) => ({
       id: row.id,
@@ -197,7 +212,7 @@ export async function getVenuesByIds(venueIds) {
       venue_type: row.venue_type ? row.venue_type.trim().toLowerCase() : null,
     }));
   } catch (error) {
-    log.error("Exception fetching venues by IDs:", error);
+    log.error("Exception fetching venues by IDs:", { count: 0, "error.code": error.code, "error.message": error.message, requestedCount: venueIds.length });
     return [];
   }
 }
@@ -218,9 +233,12 @@ export async function getVenuesByTypeAndNeighborhood(venueType, neighborhood) {
       .order("name", { ascending: true });
 
     if (error) {
-      log.error("Error fetching venues by type and neighborhood:", error.message);
+      log.error("Error fetching venues by type and neighborhood:", { count: 0, "error.code": error.code, "error.message": error.message, venueType, neighborhood });
       return [];
     }
+
+    const count = data?.length || 0;
+    log.log("getVenuesByTypeAndNeighborhood success:", { count, "error.code": null, "error.message": null, venueType, neighborhood });
 
     return (data || []).map((row) => ({
       id: row.id,
@@ -231,7 +249,7 @@ export async function getVenuesByTypeAndNeighborhood(venueType, neighborhood) {
       venue_type: row.venue_type ? row.venue_type.trim().toLowerCase() : null,
     }));
   } catch (error) {
-    log.error("Exception fetching venues by type and neighborhood:", error);
+    log.error("Exception fetching venues by type and neighborhood:", { count: 0, "error.code": error.code, "error.message": error.message, venueType, neighborhood });
     return [];
   }
 }
@@ -248,14 +266,16 @@ export async function getNeighborhoods() {
       .not("neighborhood", "is", null);
 
     if (error) {
-      log.error("Error fetching neighborhoods:", error.message);
+      log.error("Error fetching neighborhoods:", { count: 0, "error.code": error.code, "error.message": error.message });
       return [];
     }
 
     const unique = [...new Set((data || []).map(v => v.neighborhood))].sort();
+    const count = unique.length;
+    log.log("getNeighborhoods success:", { count, "error.code": null, "error.message": null });
     return unique;
   } catch (error) {
-    log.error("Exception fetching neighborhoods:", error);
+    log.error("Exception fetching neighborhoods:", { count: 0, "error.code": error.code, "error.message": error.message });
     return [];
   }
 }
