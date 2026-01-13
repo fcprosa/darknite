@@ -5,6 +5,7 @@ import { validateVenueType, isBar as isBarHelper } from "../utils/venueHelpers";
 import { mapCoverPriceToUI, mapBarTierToSymbol, mapBarTierToUI, mapLegacyDrinksPriceToTier } from "../utils/priceMapping";
 import { formatTimeAgo } from "../utils/timeHelpers";
 import { getDisplayValue } from "../utils/displayHelpers";
+import { getDisplayRatio } from "../utils/vibeHelpers";
 
 function getMusicEmoji(music) {
   if (!music) return "🎵";
@@ -57,14 +58,13 @@ function getRatioEmoji(ratio) {
 export default function VenueCardLovable({ venue, guys, girls, onPress, latestVibe }) {
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
-  // Normalize guys and girls values - default to 50/50 if null/undefined/NaN
-  const normalizedGuys = (typeof guys === 'number' && !isNaN(guys)) ? guys : 50;
-  const normalizedGirls = (typeof girls === 'number' && !isNaN(girls)) ? girls : 50;
-
   // Validate and determine venue type
   const venueTypeValidation = validateVenueType(venue?.venue_type);
   const venueType = venueTypeValidation.valid ? venueTypeValidation.type : null;
   const isBar = isBarHelper(venue?.venue_type);
+  
+  // Get ratio display info using helper
+  const ratioInfo = getDisplayRatio(venue, latestVibe);
   
   // Log error if venue type is invalid (for monitoring)
   if (!venueTypeValidation.valid) {
@@ -238,30 +238,13 @@ export default function VenueCardLovable({ venue, guys, girls, onPress, latestVi
           )}
         </View>
 
-        {/* Thin Ratio Bar - Show for clubs always, for bars only if ratio exists */}
-        {(() => {
-          // Determine if we should show the ratio bar
-          // For clubs: always show (even if no vibe, show neutral state)
-          // For bars: only show if ratio exists in the vibe
-          const shouldShowRatioBar = !isBar || (isBar && ratioText);
-          
-          if (!shouldShowRatioBar) return null;
-          
-          return (
-            <View style={styles.ratioBar}>
-              {ratioText ? (
-                // Show colored segments if ratio exists
-                <>
-                  <View style={[styles.ratioSegmentGuys, { flex: normalizedGuys }]} />
-                  <View style={[styles.ratioSegmentGirls, { flex: normalizedGirls }]} />
-                </>
-              ) : (
-                // Neutral style if ratio is missing (for clubs with no vibe yet)
-                <View style={styles.ratioSegmentNeutral} />
-              )}
-            </View>
-          );
-        })()}
+        {/* Thin Ratio Bar - Show based on getDisplayRatio helper */}
+        {ratioInfo.show && (
+          <View style={styles.ratioBar}>
+            <View style={[styles.ratioSegmentGuys, { flex: ratioInfo.guys }]} />
+            <View style={[styles.ratioSegmentGirls, { flex: ratioInfo.girls }]} />
+          </View>
+        )}
       </TouchableOpacity>
     </Animated.View>
   );

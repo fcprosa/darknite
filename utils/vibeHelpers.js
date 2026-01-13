@@ -2,6 +2,63 @@ import { Alert } from "react-native";
 import { supabase } from "./supabase";
 
 /**
+ * Convert ratio label to percentages
+ * @param {string} ratioLabel - Ratio label ("Mostly guys", "Balanced", "Mostly girls")
+ * @returns {Object} Object with guys and girls percentages
+ */
+export function mapRatioToPercent(ratioLabel) {
+  switch (ratioLabel) {
+    case "Mostly guys":
+      return { guys: 70, girls: 30 };
+    case "Balanced":
+      return { guys: 50, girls: 50 };
+    case "Mostly girls":
+      return { guys: 30, girls: 70 };
+    default:
+      return { guys: 50, girls: 50 };
+  }
+}
+
+/**
+ * Get display ratio for venue cards
+ * @param {Object} venue - Venue object with venue_type, default_guys, default_girls
+ * @param {Object|null} latestVibe - Latest vibe object with ratio property
+ * @returns {Object} { show: boolean, guys: number, girls: number, isDefault: boolean }
+ */
+export function getDisplayRatio(venue, latestVibe) {
+  // If latestVibe has a ratio, convert it to percentages
+  if (latestVibe?.ratio) {
+    const ratioPercent = mapRatioToPercent(latestVibe.ratio);
+    return {
+      show: true,
+      guys: ratioPercent.guys,
+      girls: ratioPercent.girls,
+      isDefault: false,
+    };
+  }
+
+  // For clubs: always show ratio, use venue defaults or fallback to 50/50
+  if (venue?.venue_type === 'club') {
+    const guys = typeof venue.default_guys === 'number' ? venue.default_guys : 50;
+    const girls = typeof venue.default_girls === 'number' ? venue.default_girls : 50;
+    return {
+      show: true,
+      guys,
+      girls,
+      isDefault: true,
+    };
+  }
+
+  // For bars: don't show ratio
+  return {
+    show: false,
+    guys: 50,
+    girls: 50,
+    isDefault: false,
+  };
+}
+
+/**
  * Fetches the latest vibe for a venue with retry logic and optional error feedback
  * @param {string} venueKey - Venue ID (must be valid string ID, not name)
  * @param {Object} options - Configuration options
@@ -99,22 +156,3 @@ export async function fetchRecentVibes(venueKey, hours = 2) {
 
   return data || [];
 }
-
-/**
- * Convert ratio label to percentages
- * @param {string} ratioLabel - Ratio label ("Mostly guys", "Balanced", "Mostly girls")
- * @returns {Object} Object with guys and girls percentages
- */
-export function mapRatioToPercent(ratioLabel) {
-  switch (ratioLabel) {
-    case "Mostly guys":
-      return { guys: 70, girls: 30 };
-    case "Balanced":
-      return { guys: 50, girls: 50 };
-    case "Mostly girls":
-      return { guys: 30, girls: 70 };
-    default:
-      return { guys: 50, girls: 50 };
-  }
-}
-
