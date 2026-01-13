@@ -8,7 +8,7 @@ import VenueDetailsLovable from "../components/VenueDetailsLovable";
 import AnimatedPostVibeSheet from "../components/AnimatedPostVibeSheet";
 import { useAppContext } from "../contexts/AppContext";
 import { useAuth } from "../contexts/AuthContext";
-import { supabase } from "../utils/supabase";
+import { getVenueById } from "../services/venueService";
 
 const Stack = createNativeStackNavigator();
 
