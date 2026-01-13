@@ -17,51 +17,6 @@ import { formatTimeAgo } from "../utils/timeHelpers";
 // Get AppContext - we'll need to import it from App.js or create a hook
 // For now, we'll check isAuthenticated to determine guest mode
 
-async function fetchUserVibes(userId) {
-  if (!userId) return [];
-  
-  try {
-    const { data, error } = await supabase
-      .from("vibes")
-      .select("venue_id, crowd, ratio, music, created_at")
-      .eq("user_id", userId)
-      .order("created_at", { ascending: false })
-      .limit(10);
-
-    if (error) {
-      console.log("Error fetching user vibes:", error.message);
-      return [];
-    }
-
-    return data || [];
-  } catch (e) {
-    console.log("Error:", e);
-    return [];
-  }
-}
-
-
-async function fetchUserProfile(userId) {
-  if (!userId) return null;
-  
-  try {
-    const { data, error } = await supabase
-      .from("user_profiles")
-      .select("username, preferred_scene, favorite_genres, favorite_neighborhoods")
-      .eq("id", userId)
-      .maybeSingle();
-
-    if (error) {
-      console.log("Error fetching user profile:", error.message);
-      return null;
-    }
-
-    return data;
-  } catch (e) {
-    console.log("Error:", e);
-    return null;
-  }
-}
 
 export default function ProfileScreen({ navigation: navigationProp, isGuest = false }) {
   const navigation = navigationProp || useNavigation();
@@ -77,8 +32,8 @@ export default function ProfileScreen({ navigation: navigationProp, isGuest = fa
       setProfileLoading(true);
       
       Promise.all([
-        fetchUserVibes(user.id),
-        fetchUserProfile(user.id)
+        getUserVibes(user.id, 10),
+        getUserProfile(user.id)
       ]).then(([vibes, profile]) => {
         setUserVibes(vibes);
         setUserProfile(profile);
