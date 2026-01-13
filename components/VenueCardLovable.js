@@ -375,19 +375,19 @@ const styles = StyleSheet.create({
     backgroundColor: "#F973FF", // pink
   },
   noVibesContainer: {
-    marginTop: 8,
-    marginBottom: 8,
+    marginTop: 4,
+    marginBottom: 4,
     paddingVertical: 8,
     alignItems: "center",
   },
   noVibesText: {
     color: "rgba(156, 163, 175, 0.6)",
-    fontSize: 12,
-    fontWeight: "500",
+    fontSize: 11,
+    fontWeight: "400",
     marginBottom: 2,
   },
   noVibesSubtext: {
     color: "rgba(156, 163, 175, 0.5)",
-    fontSize: 11,
+    fontSize: 10,
   },
 });
