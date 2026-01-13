@@ -167,7 +167,7 @@ export async function getUserVibes(userId, limit = 10) {
 /**
  * Create a new vibe
  * @param {Object} vibeData - Vibe data object
- * @returns {Promise<{data: Object|null, error: Error|null}>} Result object
+ * @returns {Promise<{data: Object|null, error: Error|null, userMessage: string|null}>} Result object
  */
 export async function createVibe(vibeData) {
   try {
@@ -179,14 +179,45 @@ export async function createVibe(vibeData) {
 
     if (error) {
       log.error("Error creating vibe:", error);
-      return { data: null, error };
+      
+      // Handle RLS and rate-limit errors with user-friendly messages
+      if (error.code === "42501" || error.code === "PGRST301" || error.message?.includes("permission denied")) {
+        // RLS policy violation (401/403)
+        return {
+          data: null,
+          error: error,
+          userMessage: "Please sign in to post a vibe."
+        };
+      }
+      
+      if (error.code === "23505" || error.message?.includes("Rate limit exceeded") || error.message?.includes("already posted")) {
+        // Rate limit violation
+        return {
+          data: null,
+          error: error,
+          userMessage: "You've posted recently for this venue—try again in ~15 minutes."
+        };
+      }
+      
+      // Generic error
+      return { data: null, error: error, userMessage: null };
     }
 
     log.log("Vibe created successfully");
-    return { data, error: null };
+    return { data, error: null, userMessage: null };
   } catch (error) {
     log.error("Exception creating vibe:", error);
-    return { data: null, error };
+    
+    // Handle exceptions that might be RLS or rate-limit related
+    if (error.message?.includes("Rate limit exceeded") || error.message?.includes("already posted")) {
+      return {
+        data: null,
+        error: error,
+        userMessage: "You've posted recently for this venue—try again in ~15 minutes."
+      };
+    }
+    
+    return { data: null, error: error, userMessage: null };
   }
 }
 

@@ -772,11 +772,14 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
       // Log final payload before insert (without secrets)
       console.log("[PostVibe] Final payload:", JSON.stringify(vibeData, null, 2));
 
-      const { data, error } = await createVibe(vibeData);
+      const { data, error, userMessage } = await createVibe(vibeData);
 
       if (error) {
         console.error("Error inserting vibe:", error);
-        Alert.alert("Error", "Could not post vibe. Try again.");
+        
+        // Show user-friendly message if available, otherwise generic error
+        const message = userMessage || "Could not post vibe. Try again.";
+        Alert.alert("Error", message);
         hasSubmittedRef.current = false;
         setSubmitting(false);
         return;

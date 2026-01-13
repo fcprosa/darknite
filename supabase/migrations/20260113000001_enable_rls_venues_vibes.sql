@@ -1,0 +1,54 @@
+-- Enable RLS on venues and vibes tables
+-- This migration enables Row Level Security and sets up policies
+
+-- ============================================
+-- VENUES TABLE
+-- ============================================
+
+-- Enable RLS on venues
+ALTER TABLE venues ENABLE ROW LEVEL SECURITY;
+
+-- Drop existing policies if they exist (for idempotency)
+DROP POLICY IF EXISTS "venues_select_public" ON venues;
+DROP POLICY IF EXISTS "venues_insert_admin_only" ON venues;
+DROP POLICY IF EXISTS "venues_update_admin_only" ON venues;
+DROP POLICY IF EXISTS "venues_delete_admin_only" ON venues;
+
+-- Allow SELECT for everyone (public read)
+CREATE POLICY "venues_select_public" ON venues
+  FOR SELECT
+  USING (true);
+
+-- Deny INSERT/UPDATE/DELETE for all users (only service-role/admin can bypass RLS)
+-- In Supabase, service-role bypasses RLS, so we don't need explicit policies
+-- We just don't create policies that allow INSERT/UPDATE/DELETE for authenticated/anonymous
+
+-- ============================================
+-- VIBES TABLE
+-- ============================================
+
+-- Enable RLS on vibes
+ALTER TABLE vibes ENABLE ROW LEVEL SECURITY;
+
+-- Drop existing policies if they exist (for idempotency)
+DROP POLICY IF EXISTS "vibes_select_public" ON vibes;
+DROP POLICY IF EXISTS "vibes_insert_authenticated" ON vibes;
+DROP POLICY IF EXISTS "vibes_update_denied" ON vibes;
+DROP POLICY IF EXISTS "vibes_delete_denied" ON vibes;
+
+-- Allow SELECT for everyone (public read)
+CREATE POLICY "vibes_select_public" ON vibes
+  FOR SELECT
+  USING (true);
+
+-- Allow INSERT only for authenticated users
+CREATE POLICY "vibes_insert_authenticated" ON vibes
+  FOR INSERT
+  WITH CHECK (auth.uid() IS NOT NULL);
+
+-- Explicitly deny UPDATE (optional, but makes intent clear)
+-- Since we don't create an UPDATE policy, UPDATE is denied by default
+
+-- Explicitly deny DELETE (optional, but makes intent clear)
+-- Since we don't create a DELETE policy, DELETE is denied by default
+
