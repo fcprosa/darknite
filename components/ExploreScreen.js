@@ -254,7 +254,7 @@ export default function ExploreScreen({ navigation, tabNavigation, onOpenVenue }
 
       return true;
     });
-  }, [venues, latestVibes, searchQuery, activeFilters, selectedType]);
+  }, [venues, latestVibesByVenueId, searchQuery, activeFilters, selectedType]);
 
   // Group filtered venues by neighborhood
   const neighborhoodGroups = useMemo(() => {
@@ -288,7 +288,7 @@ export default function ExploreScreen({ navigation, tabNavigation, onOpenVenue }
     
     // Convert to array and sort by neighborhood name
     return Object.values(groups).sort((a, b) => a.neighborhood.localeCompare(b.neighborhood));
-  }, [filteredVenues, latestVibes]);
+  }, [filteredVenues, latestVibesByVenueId]);
 
   const renderVenueCard = (item) => {
     const key = getVenueKeySafe(item);
