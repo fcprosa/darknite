@@ -3,18 +3,12 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput } from 
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import VenueCardLovable from "./VenueCardLovable";
-import { supabase } from "../utils/supabase";
 import { mapCoverPriceToUI, BAR_TIER_UI_LABELS, mapBarTierToUI, mapLegacyDrinksPriceToTier } from "../utils/priceMapping";
 import { fetchLatestVibe } from "../utils/vibeHelpers";
 import { formatTimeAgo } from "../utils/timeHelpers";
 import { getVenueKeySafe } from "../utils/venueHelpers";
-
-const FALLBACK_VENUES = [
-  { id: "Gospel", name: "Gospel", neighborhood: "SoHo", guys: 50, girls: 50, venue_type: "club" },
-  { id: "Schimanski", name: "Schimanski", neighborhood: "Williamsburg", guys: 50, girls: 50, venue_type: "bar" },
-  { id: "Skyline", name: "Skyline Rooftop", neighborhood: "Midtown", guys: 50, girls: 50, venue_type: "bar" },
-  { id: "PublicArts", name: "Public Arts", neighborhood: "Lower East Side", guys: 50, girls: 50, venue_type: "bar" },
-];
+import { useAppContext } from "../contexts/AppContext";
+import { getVenuesByType } from "../services/venueService";
 
 
 function mapRatioToPercent(ratioLabel) {
@@ -48,7 +42,8 @@ function FilterChip({ label, isActive, onPress }) {
 }
 
 export default function ExploreScreen({ navigation, tabNavigation, onOpenVenue }) {
-  const [venues, setVenues] = useState(FALLBACK_VENUES);
+  const { venues: allVenues, loadingVenues: loadingAllVenues } = useAppContext();
+  const [venues, setVenues] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedType, setSelectedType] = useState("Clubs");
   const [searchQuery, setSearchQuery] = useState("");
@@ -101,32 +96,18 @@ export default function ExploreScreen({ navigation, tabNavigation, onOpenVenue }
 
   useEffect(() => {
     async function load() {
-      setLoading(true);
-
-      const venueTypeFilter = selectedType === "Clubs" ? "club" : "bar";
-
-      console.log(`[Explore] Fetching venues for tab: "${selectedType}" (venue_type = '${venueTypeFilter}')`);
-
-      const { data, error } = await supabase
-        .from("venues")
-        .select("id, name, neighborhood, default_guys, default_girls, venue_type")
-        .eq("venue_type", venueTypeFilter)
-        .order("name", { ascending: true });
-
-      if (error) {
-        console.error("[Explore] Error fetching venues:", error.message);
-
-        const filteredFallback = FALLBACK_VENUES.filter((v) => (v.venue_type || "").trim().toLowerCase() === venueTypeFilter);
-        setVenues(filteredFallback);
-        setRatios({});
-        setLatestVibes({});
-        setLoading(false);
+      if (loadingAllVenues) {
+        setLoading(true);
         return;
       }
 
-      if (!data || data.length === 0) {
-        console.log(`[Explore] No venues found for "${selectedType}" (venue_type='${venueTypeFilter}')`);
+      setLoading(true);
+      const venueTypeFilter = selectedType === "Clubs" ? "club" : "bar";
 
+      // Use service to fetch venues by type
+      const fetchedVenues = await getVenuesByType(venueTypeFilter);
+
+      if (fetchedVenues.length === 0) {
         setVenues([]);
         setRatios({});
         setLatestVibes({});
@@ -134,17 +115,8 @@ export default function ExploreScreen({ navigation, tabNavigation, onOpenVenue }
         return;
       }
 
-      const mapped = data.map((row) => ({
-        id: row.id,
-        name: row.name,
-        neighborhood: row.neighborhood,
-        guys: row.default_guys ?? 50,
-        girls: row.default_girls ?? 50,
-        venue_type: row.venue_type ? row.venue_type.trim().toLowerCase() : null,
-      }));
-
       // Fetch all vibes in parallel BEFORE setting state
-      const vibePromises = mapped.map(venue => 
+      const vibePromises = fetchedVenues.map(venue => 
         fetchLatestVibe(getVenueKeySafe(venue))
       );
       const vibeResults = await Promise.all(vibePromises);
@@ -154,7 +126,7 @@ export default function ExploreScreen({ navigation, tabNavigation, onOpenVenue }
 
       vibeResults.forEach((vibe, index) => {
         if (vibe) {
-          const key = getVenueKeySafe(mapped[index]);
+          const key = getVenueKeySafe(fetchedVenues[index]);
           if (key) {
             nextVibes[key] = vibe;
             if (vibe.ratio) nextRatios[key] = mapRatioToPercent(vibe.ratio);
@@ -163,14 +135,14 @@ export default function ExploreScreen({ navigation, tabNavigation, onOpenVenue }
       });
 
       // Set all state together at the end
-      setVenues(mapped);
+      setVenues(fetchedVenues);
       setRatios(nextRatios);
       setLatestVibes(nextVibes);
       setLoading(false);
     }
 
     load();
-  }, [selectedType]);
+  }, [selectedType, loadingAllVenues]);
 
   const toggleFilter = (filterType, value) => {
     setActiveFilters((prev) => {

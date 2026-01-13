@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect } from "react";
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import VenueCardLovable from "./VenueCardLovable";
-import { supabase } from "../utils/supabase";
 import { fetchLatestVibe } from "../utils/vibeHelpers";
 import { getVenueKeySafe } from "../utils/venueHelpers";
+import { getVenuesByTypeAndNeighborhood } from "../services/venueService";
 
 
 function mapRatioToPercent(ratioLabel) {
@@ -35,31 +35,11 @@ export default function NeighborhoodVenuesScreen({ navigation, route }) {
       setLoading(true);
       const venueTypeFilter = selectedType === "Clubs" ? "club" : "bar";
 
-      const { data, error } = await supabase
-        .from("venues")
-        .select("id, name, neighborhood, default_guys, default_girls, venue_type")
-        .eq("venue_type", venueTypeFilter)
-        .eq("neighborhood", neighborhood)
-        .order("name", { ascending: true });
-
-      if (error) {
-        console.error("[NeighborhoodVenues] Error fetching venues:", error.message);
-        setVenues([]);
-        setLoading(false);
-        return;
-      }
-
-      const mapped = (data || []).map((row) => ({
-        id: row.id,
-        name: row.name,
-        neighborhood: row.neighborhood || "Unknown",
-        guys: row.default_guys ?? 50,
-        girls: row.default_girls ?? 50,
-        venue_type: row.venue_type ? row.venue_type.trim().toLowerCase() : null,
-      }));
+      // Use service to fetch venues by type and neighborhood
+      const fetchedVenues = await getVenuesByTypeAndNeighborhood(venueTypeFilter, neighborhood);
 
       // Fetch all vibes in parallel BEFORE setting state
-      const vibePromises = mapped.map(venue => 
+      const vibePromises = fetchedVenues.map(venue => 
         fetchLatestVibe(getVenueKeySafe(venue))
       );
       const vibeResults = await Promise.all(vibePromises);
@@ -69,7 +49,7 @@ export default function NeighborhoodVenuesScreen({ navigation, route }) {
 
       vibeResults.forEach((vibe, index) => {
         if (vibe) {
-          const key = getVenueKeySafe(mapped[index]);
+          const key = getVenueKeySafe(fetchedVenues[index]);
           if (key) {
             nextVibes[key] = vibe;
             if (vibe.ratio) nextRatios[key] = mapRatioToPercent(vibe.ratio);
@@ -78,7 +58,7 @@ export default function NeighborhoodVenuesScreen({ navigation, route }) {
       });
 
       // Set all state together at the end
-      setVenues(mapped);
+      setVenues(fetchedVenues);
       setRatios(nextRatios);
       setLatestVibes(nextVibes);
       setLoading(false);

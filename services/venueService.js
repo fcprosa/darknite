@@ -203,6 +203,40 @@ export async function getVenuesByIds(venueIds) {
 }
 
 /**
+ * Fetch venues by type and neighborhood
+ * @param {string} venueType - 'club' or 'bar'
+ * @param {string} neighborhood - Neighborhood name
+ * @returns {Promise<Array>} Array of venue objects
+ */
+export async function getVenuesByTypeAndNeighborhood(venueType, neighborhood) {
+  try {
+    const { data, error } = await supabase
+      .from("venues")
+      .select("id, name, neighborhood, default_guys, default_girls, venue_type")
+      .eq("venue_type", venueType)
+      .eq("neighborhood", neighborhood)
+      .order("name", { ascending: true });
+
+    if (error) {
+      log.error("Error fetching venues by type and neighborhood:", error.message);
+      return [];
+    }
+
+    return (data || []).map((row) => ({
+      id: row.id,
+      name: row.name,
+      neighborhood: row.neighborhood || "Unknown",
+      guys: row.default_guys ?? 50,
+      girls: row.default_girls ?? 50,
+      venue_type: row.venue_type ? row.venue_type.trim().toLowerCase() : null,
+    }));
+  } catch (error) {
+    log.error("Exception fetching venues by type and neighborhood:", error);
+    return [];
+  }
+}
+
+/**
  * Fetch unique neighborhoods from venues
  * @returns {Promise<Array<string>>} Array of unique neighborhood names
  */
