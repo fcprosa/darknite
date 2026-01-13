@@ -4,6 +4,10 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import VenueCardLovable from "./VenueCardLovable";
 import { supabase } from "../utils/supabase";
+import { mapCoverPriceToUI, BAR_TIER_UI_LABELS, mapBarTierToUI, mapLegacyDrinksPriceToTier } from "../utils/priceMapping";
+import { fetchLatestVibe } from "../utils/vibeHelpers";
+import { formatTimeAgo } from "../utils/timeHelpers";
+import { getVenueKeySafe } from "../utils/venueHelpers";
 
 const FALLBACK_VENUES = [
   { id: "Gospel", name: "Gospel", neighborhood: "SoHo", guys: 50, girls: 50, venue_type: "club" },
@@ -12,27 +16,6 @@ const FALLBACK_VENUES = [
   { id: "PublicArts", name: "Public Arts", neighborhood: "Lower East Side", guys: 50, girls: 50, venue_type: "bar" },
 ];
 
-async function fetchLatestVibe(venueKey) {
-  if (!venueKey) return null;
-
-  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-
-  const { data, error } = await supabase
-    .from("vibes")
-    .select("crowd, ratio, line, cover, drinks_price, music, bar_type, created_at")
-    .eq("venue_id", venueKey)
-    .gte("created_at", since)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) {
-    console.log("Error fetching latest vibe:", error.message);
-    return null;
-  }
-
-  return data;
-}
 
 function mapRatioToPercent(ratioLabel) {
   switch (ratioLabel) {
@@ -80,11 +63,16 @@ export default function ExploreScreen({ navigation, tabNavigation, onOpenVenue }
 
   // Reset filters when switching tabs
   useEffect(() => {
-    if (selectedType === "Clubs") {
-      setActiveFilters({ music: [], cover: [], line: [], vibe: [], neighborhood: [] });
-    } else {
-      setActiveFilters({ bar_type: [], drinks_price: [], ratio: [], vibe: [], neighborhood: [] });
-    }
+    // Preserve neighborhood filter when switching tabs
+    setActiveFilters(prev => {
+      const currentNeighborhood = prev.neighborhood || [];
+      
+      if (selectedType === "Clubs") {
+        return { music: [], cover: [], line: [], vibe: [], neighborhood: currentNeighborhood };
+      } else {
+        return { bar_type: [], drinks_price: [], ratio: [], vibe: [], neighborhood: currentNeighborhood };
+      }
+    });
   }, [selectedType]);
 
   // Filter options by venue type
@@ -97,7 +85,12 @@ export default function ExploreScreen({ navigation, tabNavigation, onOpenVenue }
 
   const barFilterOptions = {
     bar_type: ["Cocktail", "Sports", "Dive", "Rooftop", "Wine", "Speakeasy"],
-    drinks_price: ["Free", "< $10", "$10-20", "$20-30", "$30+"],
+    drinks_price: [
+      BAR_TIER_UI_LABELS.cheap,
+      BAR_TIER_UI_LABELS.normal,
+      BAR_TIER_UI_LABELS.expensive,
+      BAR_TIER_UI_LABELS.crazy,
+    ],
     ratio: ["Mostly guys", "Balanced", "Mostly girls"],
     vibe: ["Chill", "Chaos"],
   };
@@ -150,24 +143,30 @@ export default function ExploreScreen({ navigation, tabNavigation, onOpenVenue }
         venue_type: row.venue_type ? row.venue_type.trim().toLowerCase() : null,
       }));
 
-      setVenues(mapped);
-      setLoading(false);
+      // Fetch all vibes in parallel BEFORE setting state
+      const vibePromises = mapped.map(venue => 
+        fetchLatestVibe(getVenueKeySafe(venue))
+      );
+      const vibeResults = await Promise.all(vibePromises);
 
-      // Load ratios + latest vibes for these venues
       const nextRatios = {};
       const nextVibes = {};
 
-      for (const venue of mapped) {
-        const key = venue.id || venue.name;
-        const vibe = await fetchLatestVibe(key);
+      vibeResults.forEach((vibe, index) => {
         if (vibe) {
-          nextVibes[key] = vibe;
-          if (vibe.ratio) nextRatios[key] = mapRatioToPercent(vibe.ratio);
+          const key = getVenueKeySafe(mapped[index]);
+          if (key) {
+            nextVibes[key] = vibe;
+            if (vibe.ratio) nextRatios[key] = mapRatioToPercent(vibe.ratio);
+          }
         }
-      }
+      });
 
+      // Set all state together at the end
+      setVenues(mapped);
       setRatios(nextRatios);
       setLatestVibes(nextVibes);
+      setLoading(false);
     }
 
     load();
@@ -187,7 +186,8 @@ export default function ExploreScreen({ navigation, tabNavigation, onOpenVenue }
     const isClub = selectedType === "Clubs";
 
     return list.filter((venue) => {
-      const key = venue.id || venue.name;
+      const key = getVenueKeySafe(venue);
+      if (!key) return false; // Skip venues without valid IDs
       const vibe = latestVibes[key];
 
       // Search - works for both tabs
@@ -237,17 +237,23 @@ export default function ExploreScreen({ navigation, tabNavigation, onOpenVenue }
           if (!vibeBarType || !filterBarTypes.includes(vibeBarType)) return false;
         }
 
-        // Drinks price filter - map DB values to UI labels for comparison
+        // Drinks price filter - for bars: use tier system, for clubs: use cover
         if (activeFilters.drinks_price?.length > 0) {
-          // Map DB values ($, $$, $$$, $$$$) to UI labels for filter comparison
-          const dbToUILabel = {
-            "$": "< $10",
-            "$$": "$10-20",
-            "$$$": "$20-30",
-            "$$$$": "$30+",
-          };
-          const vibeUILabel = vibe.drinks_price ? dbToUILabel[vibe.drinks_price] : "Free";
-          if (!activeFilters.drinks_price.includes(vibeUILabel) && !activeFilters.drinks_price.includes("Free")) {
+          let vibeUILabel = null;
+          if (isBar) {
+            // Bar: check drinks_price_tier (new) or legacy drinks_price
+            if (vibe.drinks_price_tier) {
+              vibeUILabel = mapBarTierToUI(vibe.drinks_price_tier);
+            } else if (vibe.drinks_price) {
+              // Backward compatibility: convert legacy to tier
+              const tier = mapLegacyDrinksPriceToTier(vibe.drinks_price);
+              vibeUILabel = tier ? mapBarTierToUI(tier) : null;
+            }
+          } else {
+            // Club: drinks_price is actually cover charge
+            vibeUILabel = vibe.cover ? mapCoverPriceToUI(vibe.cover) : null;
+          }
+          if (!vibeUILabel || !activeFilters.drinks_price.includes(vibeUILabel)) {
             return false;
           }
         }
@@ -281,7 +287,8 @@ export default function ExploreScreen({ navigation, tabNavigation, onOpenVenue }
   const neighborhoodGroups = useMemo(() => {
     const groups = {};
     for (const venue of filteredVenues) {
-      const key = venue.id || venue.name;
+      const key = getVenueKeySafe(venue);
+      if (!key) continue; // Skip venues without valid IDs
       const vibe = latestVibes[key];
       const neighborhood = venue.neighborhood || "Unknown";
       
@@ -311,7 +318,8 @@ export default function ExploreScreen({ navigation, tabNavigation, onOpenVenue }
   }, [filteredVenues, latestVibes]);
 
   const renderVenueCard = (item) => {
-    const key = item.id || item.name;
+    const key = getVenueKeySafe(item);
+    if (!key) return null; // Skip venues without valid IDs
     const liveRatio = ratios[key];
     const guys = liveRatio?.guys ?? item.guys;
     const girls = liveRatio?.girls ?? item.girls;
@@ -328,20 +336,9 @@ export default function ExploreScreen({ navigation, tabNavigation, onOpenVenue }
     );
   };
 
-  const formatTimeAgo = (date) => {
-    if (!date) return null;
-    const now = new Date();
-    const diffMs = now - date;
-    const diffMins = Math.floor(diffMs / 60000);
-    if (diffMins < 60) return `${diffMins}m ago`;
-    const diffHours = Math.floor(diffMins / 60);
-    if (diffHours < 24) return `${diffHours}h ago`;
-    const diffDays = Math.floor(diffHours / 24);
-    return `${diffDays}d ago`;
-  };
 
   const renderNeighborhoodCard = (group) => {
-    const lastUpdatedText = group.lastUpdated ? formatTimeAgo(group.lastUpdated) : null;
+    const lastUpdatedText = group.lastUpdated ? formatTimeAgo(group.lastUpdated, true) : null;
     
     const handlePress = () => {
       console.log('[Explore] neighborhood pressed', group.neighborhood);
@@ -525,7 +522,33 @@ export default function ExploreScreen({ navigation, tabNavigation, onOpenVenue }
               </View>
             ) : (
               <View style={styles.emptyContainer}>
-                <Text style={styles.emptyText}>No venues found</Text>
+                {/* Check if any filters are active */}
+                {Object.values(activeFilters).some(arr => Array.isArray(arr) && arr.length > 0) ? (
+                  <>
+                    <Ionicons name="funnel-outline" size={48} color="#6B7280" style={{ marginBottom: 12 }} />
+                    <Text style={styles.emptyText}>No venues match your filters</Text>
+                    <Text style={styles.emptySubtext}>Try adjusting or clearing filters</Text>
+                    <TouchableOpacity
+                      style={styles.clearFiltersButton}
+                      onPress={() => setActiveFilters(prev => {
+                        const currentNeighborhood = prev.neighborhood || [];
+                        if (selectedType === "Clubs") {
+                          return { music: [], cover: [], line: [], vibe: [], neighborhood: currentNeighborhood };
+                        } else {
+                          return { bar_type: [], drinks_price: [], ratio: [], vibe: [], neighborhood: currentNeighborhood };
+                        }
+                      })}
+                    >
+                      <Text style={styles.clearFiltersText}>Clear all filters</Text>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <>
+                    <Ionicons name="location-outline" size={48} color="#6B7280" style={{ marginBottom: 12 }} />
+                    <Text style={styles.emptyText}>No {selectedType.toLowerCase()} found</Text>
+                    <Text style={styles.emptySubtext}>Check back later for new venues</Text>
+                  </>
+                )}
               </View>
             )}
           </>
@@ -646,4 +669,24 @@ const styles = StyleSheet.create({
 
   emptyContainer: { padding: 32, alignItems: "center" },
   emptyText: { color: "#9CA3AF", fontSize: 14 },
+  emptySubtext: { 
+    color: "#6B7280", 
+    fontSize: 13, 
+    marginTop: 4,
+    textAlign: "center",
+  },
+  clearFiltersButton: {
+    marginTop: 16,
+    backgroundColor: "rgba(168,85,247,0.2)",
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#A855F7",
+  },
+  clearFiltersText: {
+    color: "#A855F7",
+    fontSize: 14,
+    fontWeight: "600",
+  },
 });

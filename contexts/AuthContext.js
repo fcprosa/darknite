@@ -20,6 +20,7 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authCallback, setAuthCallback] = useState(null);
+  const [pendingNav, setPendingNav] = useState(null); // { name, params }
 
   // Stable auth state listener - subscribe once, never re-subscribe
   useEffect(() => {
@@ -48,10 +49,20 @@ export function AuthProvider({ children }) {
         setSession(session);
         setUser(session?.user ?? null);
         setLoading(false);
+        
+        // Ensure profile exists after sign in
+        if (session?.user?.id) {
+          await ensureProfileExists(session.user.id);
+        }
       } else if (event === "SIGNED_OUT") {
+        // Clear all auth-related state on sign-out
         setSession(null);
         setUser(null);
         setLoading(false);
+        setShowAuthModal(false);
+        setAuthCallback(null);
+        setPendingNav(null);
+        console.log("[Auth] Sign-out complete - all state cleared");
       } else {
         // Update session/user for other events too
         setSession(session);
@@ -66,6 +77,27 @@ export function AuthProvider({ children }) {
     };
   }, []); // Empty deps - subscribe once only
 
+  // Helper function to ensure profile exists
+  const ensureProfileExists = async (userId) => {
+    try {
+      const { data, error } = await supabase
+        .from("user_profiles")
+        .select("id")
+        .eq("id", userId)
+        .maybeSingle();
+
+      if (error && error.code !== "PGRST116") { // PGRST116 = no rows returned
+        console.error("[Auth] Error checking profile:", error);
+        return;
+      }
+
+      // If profile doesn't exist, we'll create it when user sets username via ProfileSetupScreen
+      // Don't create empty profile here - username is required
+    } catch (e) {
+      console.error("[Auth] Error ensuring profile exists:", e);
+    }
+  };
+
   // Separate effect to handle modal closing when session appears
   useEffect(() => {
     if (session && showAuthModal) {
@@ -78,10 +110,14 @@ export function AuthProvider({ children }) {
     }
   }, [session, showAuthModal, authCallback]);
 
-  const signUp = async (email, password) => {
+  const signUp = async (email, password, username) => {
     try {
       if (!email || !email.includes("@")) {
         throw new Error("Please enter a valid email address");
+      }
+
+      if (!username || username.trim().length === 0) {
+        throw new Error("Username is required");
       }
 
       // Sign up with Supabase
@@ -101,6 +137,24 @@ export function AuthProvider({ children }) {
           },
           error: null,
         };
+      }
+
+      // Create user profile with username
+      if (data.user && data.session) {
+        const normalizedUsername = username.trim().toLowerCase();
+        const { error: profileError } = await supabase
+          .from("user_profiles")
+          .insert({
+            id: data.user.id,
+            username: normalizedUsername,
+          });
+
+        if (profileError) {
+          console.error("[Auth] Profile creation error:", profileError);
+          // If profile creation fails (e.g., username taken), sign out the user
+          await supabase.auth.signOut();
+          throw new Error(profileError.message || "Failed to create profile");
+        }
       }
 
       return { data, error: null };
@@ -166,16 +220,29 @@ export function AuthProvider({ children }) {
    * Require authentication for an action
    * If not authenticated, shows auth modal
    * If authenticated, executes the callback immediately
+   * 
+   * Can accept either:
+   * - callback function: requireAuth(() => { ... })
+   * - navigation target: requireAuth({ name: "VenueDetails", params: { venueId } })
    */
-  const requireAuth = (callback) => {
+  const requireAuth = (callbackOrNav) => {
     if (session && user) {
-      // Already authenticated, execute callback
-      callback();
-    } else {
-      // Not authenticated, show modal and save callback
-      setAuthCallback(() => callback);
-      setShowAuthModal(true);
+      // Already authenticated
+      if (typeof callbackOrNav === 'function') {
+        callbackOrNav();
+      }
+      // If it's a nav target, we don't navigate here - let the caller handle it
+      return;
     }
+    
+    // Not authenticated, show modal and store target
+    if (typeof callbackOrNav === 'function') {
+      setAuthCallback(() => callbackOrNav);
+    } else if (callbackOrNav && typeof callbackOrNav === 'object' && callbackOrNav.name) {
+      // Store navigation target
+      setPendingNav(callbackOrNav);
+    }
+    setShowAuthModal(true);
   };
 
   const isGuest = !session && !user;
@@ -194,6 +261,8 @@ export function AuthProvider({ children }) {
     requireAuth,
     showAuthModal,
     setShowAuthModal,
+    pendingNav,
+    setPendingNav,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

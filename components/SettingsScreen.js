@@ -40,9 +40,9 @@ export default function SettingsScreen({ navigation }) {
             setLoading(false);
             if (error) {
               Alert.alert("Error", "Failed to sign out. Please try again.");
-            } else {
-              handleBack();
             }
+            // Note: RootNavigator automatically switches to Landing when session becomes null
+            // No manual navigation needed - the key-based remount resets navigation history
           },
         },
       ]
@@ -64,9 +64,9 @@ export default function SettingsScreen({ navigation }) {
             setLoading(false);
             if (error) {
               Alert.alert("Error", "Failed to delete account. Please try again.");
-            } else {
-              handleBack();
             }
+            // Note: RootNavigator automatically switches to Landing when session becomes null
+            // No manual navigation needed - the key-based remount resets navigation history
           },
         },
       ]

@@ -3,28 +3,9 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from "react-nati
 import { Ionicons } from "@expo/vector-icons";
 import VenueCardLovable from "./VenueCardLovable";
 import { supabase } from "../utils/supabase";
+import { fetchLatestVibe } from "../utils/vibeHelpers";
+import { getVenueKeySafe } from "../utils/venueHelpers";
 
-async function fetchLatestVibe(venueKey) {
-  if (!venueKey) return null;
-
-  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-
-  const { data, error } = await supabase
-    .from("vibes")
-    .select("crowd, ratio, line, cover, drinks_price, music, bar_type, created_at")
-    .eq("venue_id", venueKey)
-    .gte("created_at", since)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) {
-    console.log("Error fetching latest vibe:", error.message);
-    return null;
-  }
-
-  return data;
-}
 
 function mapRatioToPercent(ratioLabel) {
   switch (ratioLabel) {
@@ -77,31 +58,38 @@ export default function NeighborhoodVenuesScreen({ navigation, route }) {
         venue_type: row.venue_type ? row.venue_type.trim().toLowerCase() : null,
       }));
 
-      setVenues(mapped);
-      setLoading(false);
+      // Fetch all vibes in parallel BEFORE setting state
+      const vibePromises = mapped.map(venue => 
+        fetchLatestVibe(getVenueKeySafe(venue))
+      );
+      const vibeResults = await Promise.all(vibePromises);
 
-      // Load ratios + latest vibes
       const nextRatios = {};
       const nextVibes = {};
 
-      for (const venue of mapped) {
-        const key = venue.id || venue.name;
-        const vibe = await fetchLatestVibe(key);
+      vibeResults.forEach((vibe, index) => {
         if (vibe) {
-          nextVibes[key] = vibe;
-          if (vibe.ratio) nextRatios[key] = mapRatioToPercent(vibe.ratio);
+          const key = getVenueKeySafe(mapped[index]);
+          if (key) {
+            nextVibes[key] = vibe;
+            if (vibe.ratio) nextRatios[key] = mapRatioToPercent(vibe.ratio);
+          }
         }
-      }
+      });
 
+      // Set all state together at the end
+      setVenues(mapped);
       setRatios(nextRatios);
       setLatestVibes(nextVibes);
+      setLoading(false);
     }
 
     loadVenues();
   }, [neighborhood, selectedType]);
 
   const renderVenueCard = (item) => {
-    const key = item.id || item.name;
+    const key = getVenueKeySafe(item);
+    if (!key) return null; // Skip venues without valid IDs
     const liveRatio = ratios[key];
     const guys = liveRatio?.guys ?? item.guys;
     const girls = liveRatio?.girls ?? item.girls;

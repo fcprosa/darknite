@@ -8,9 +8,14 @@ import {
   FlatList,
   Alert,
 } from "react-native";
+import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../contexts/AuthContext";
 import { supabase } from "../utils/supabase";
+import { formatTimeAgo } from "../utils/timeHelpers";
+
+// Get AppContext - we'll need to import it from App.js or create a hook
+// For now, we'll check isAuthenticated to determine guest mode
 
 async function fetchUserVibes(userId) {
   if (!userId) return [];
@@ -35,44 +40,80 @@ async function fetchUserVibes(userId) {
   }
 }
 
-function formatTimeAgo(dateString) {
-  if (!dateString) return "";
-  const now = new Date();
-  const then = new Date(dateString);
-  const diffMs = now - then;
-  const diffMins = Math.floor(diffMs / 60000);
 
-  if (diffMins < 1) return "just now";
-  if (diffMins < 60) return `${diffMins}m ago`;
-  const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
-  const diffDays = Math.floor(diffHours / 24);
-  return `${diffDays}d ago`;
+async function fetchUserProfile(userId) {
+  if (!userId) return null;
+  
+  try {
+    const { data, error } = await supabase
+      .from("user_profiles")
+      .select("username, preferred_scene, favorite_genres, favorite_neighborhoods")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (error) {
+      console.log("Error fetching user profile:", error.message);
+      return null;
+    }
+
+    return data;
+  } catch (e) {
+    console.log("Error:", e);
+    return null;
+  }
 }
 
-export default function ProfileScreen({ navigation }) {
+export default function ProfileScreen({ navigation: navigationProp, isGuest = false }) {
+  const navigation = navigationProp || useNavigation();
   const { user, isAuthenticated, signOut, setShowAuthModal } = useAuth();
   const [userVibes, setUserVibes] = useState([]);
+  const [userProfile, setUserProfile] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [profileLoading, setProfileLoading] = useState(false);
 
-  useEffect(() => {
-    if (isAuthenticated && user?.id) {
+  const loadProfileData = () => {
+    if (isAuthenticated && user?.id && !isGuest) {
       setLoading(true);
-      fetchUserVibes(user.id).then((vibes) => {
+      setProfileLoading(true);
+      
+      Promise.all([
+        fetchUserVibes(user.id),
+        fetchUserProfile(user.id)
+      ]).then(([vibes, profile]) => {
         setUserVibes(vibes);
+        setUserProfile(profile);
         setLoading(false);
+        setProfileLoading(false);
       });
     } else {
       setUserVibes([]);
+      setUserProfile(null);
+      setLoading(false);
+      setProfileLoading(false);
     }
-  }, [isAuthenticated, user?.id]);
+  };
+
+  useEffect(() => {
+    loadProfileData();
+  }, [isAuthenticated, user?.id, isGuest]);
+
+  // Refresh profile when screen comes into focus (e.g., returning from ProfileSetup)
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      if (isAuthenticated && user?.id && !isGuest) {
+        loadProfileData();
+      }
+    });
+
+    return unsubscribe;
+  }, [navigation, isAuthenticated, user?.id, isGuest]);
 
   const handleSignIn = () => {
     setShowAuthModal(true);
   };
 
   const handleSavedVenues = () => {
-    if (!isAuthenticated) {
+    if (!isAuthenticated || isGuest) {
       Alert.alert(
         "Sign in required",
         "Please sign in to save venues",
@@ -91,11 +132,62 @@ export default function ProfileScreen({ navigation }) {
     navigation.navigate("Settings");
   };
 
-  const vibeCount = userVibes.length;
-  const userName = isAuthenticated
-    ? user?.email?.split("@")[0] || user?.user_metadata?.full_name || "User"
-    : "Guest";
+  const handleEditProfile = () => {
+    navigation.navigate("ProfileSetup");
+  };
 
+  const vibeCount = userVibes.length;
+  const userName = isAuthenticated && !isGuest
+    ? (userProfile?.username || user?.email?.split("@")[0] || "User")
+    : "Guest";
+  
+  // Check if profile is incomplete
+  const isProfileIncomplete = userProfile && (
+    !userProfile.preferred_scene || 
+    !userProfile.favorite_genres || 
+    userProfile.favorite_genres.length === 0 ||
+    !userProfile.favorite_neighborhoods || 
+    userProfile.favorite_neighborhoods.length === 0
+  );
+
+  // Guest profile view
+  if (isGuest || !isAuthenticated) {
+    return (
+      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+        {/* Header with Avatar */}
+        <View style={styles.header}>
+          <View style={styles.avatarContainer}>
+            <View style={styles.avatarGlow} />
+            <View style={styles.avatar}>
+              <Ionicons name="person" size={48} color="#A855F7" />
+            </View>
+          </View>
+          <Text style={styles.userName}>Guest</Text>
+          <TouchableOpacity style={styles.signInButton} onPress={handleSignIn}>
+            <Text style={styles.signInButtonText}>Sign in to post vibes</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Guest Info Card */}
+        <View style={styles.section}>
+          <View style={styles.guestCard}>
+            <Ionicons name="information-circle-outline" size={32} color="#A855F7" style={{ marginBottom: 16 }} />
+            <Text style={styles.guestCardTitle}>Sign in to unlock features</Text>
+            <Text style={styles.guestCardText}>
+              Sign in to post vibes, save venues, and access your profile. It takes less than 10 seconds!
+            </Text>
+            <TouchableOpacity style={styles.guestSignInButton} onPress={handleSignIn}>
+              <Text style={styles.guestSignInButtonText}>Sign in now</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={{ height: 32 }} />
+      </ScrollView>
+    );
+  }
+
+  // Authenticated user profile view
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
       {/* Header with Avatar */}
@@ -107,17 +199,10 @@ export default function ProfileScreen({ navigation }) {
           </View>
         </View>
         <Text style={styles.userName}>{userName}</Text>
-        {!isAuthenticated && (
-          <TouchableOpacity style={styles.signInButton} onPress={handleSignIn}>
-            <Text style={styles.signInButtonText}>Sign in to post vibes</Text>
-          </TouchableOpacity>
-        )}
-        {isAuthenticated && (
-          <TouchableOpacity style={styles.settingsButton} onPress={handleSettings}>
-            <Ionicons name="settings-outline" size={20} color="#A855F7" />
-            <Text style={styles.settingsButtonText}>Settings</Text>
-          </TouchableOpacity>
-        )}
+        <TouchableOpacity style={styles.settingsButton} onPress={handleSettings}>
+          <Ionicons name="settings-outline" size={20} color="#A855F7" />
+          <Text style={styles.settingsButtonText}>Settings</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Mini Stats Cards */}
@@ -136,9 +221,25 @@ export default function ProfileScreen({ navigation }) {
         </View>
       </View>
 
+      {/* Complete Profile CTA */}
+      {isProfileIncomplete && (
+        <View style={styles.section}>
+          <TouchableOpacity style={styles.completeProfileCard} onPress={handleEditProfile}>
+            <Ionicons name="information-circle-outline" size={24} color="#A855F7" />
+            <View style={styles.completeProfileContent}>
+              <Text style={styles.completeProfileTitle}>Complete your profile</Text>
+              <Text style={styles.completeProfileText}>
+                Add your preferences to get better recommendations
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#A855F7" />
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* Action Buttons */}
       <View style={styles.actionsContainer}>
-        <TouchableOpacity style={styles.actionButton}>
+        <TouchableOpacity style={styles.actionButton} onPress={handleEditProfile}>
           <Ionicons name="create-outline" size={20} color="#A855F7" />
           <Text style={styles.actionButtonText}>Edit profile</Text>
         </TouchableOpacity>
@@ -181,6 +282,39 @@ export default function ProfileScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
+  guestCard: {
+    backgroundColor: "#0B0625",
+    borderRadius: 16,
+    padding: 24,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "rgba(168,85,247,0.3)",
+  },
+  guestCardTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#F9FAFB",
+    marginBottom: 12,
+    textAlign: "center",
+  },
+  guestCardText: {
+    fontSize: 15,
+    color: "#9CA3AF",
+    textAlign: "center",
+    marginBottom: 24,
+    lineHeight: 22,
+  },
+  guestSignInButton: {
+    backgroundColor: "#A855F7",
+    paddingHorizontal: 32,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  guestSignInButtonText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "600",
+  },
   container: {
     flex: 1,
     backgroundColor: "#050013",
@@ -346,6 +480,29 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#9CA3AF",
     marginTop: 4,
+  },
+  completeProfileCard: {
+    backgroundColor: "#0B0625",
+    borderRadius: 16,
+    padding: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "rgba(168,85,247,0.3)",
+    gap: 12,
+  },
+  completeProfileContent: {
+    flex: 1,
+  },
+  completeProfileTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#F9FAFB",
+    marginBottom: 4,
+  },
+  completeProfileText: {
+    fontSize: 13,
+    color: "#9CA3AF",
   },
 });
 

@@ -10,29 +10,13 @@ import {
   Platform,
 } from "react-native";
 import { supabase } from "../utils/supabase";
+import { validateVenueType, isBar as isBarHelper, getVenueKeySafe } from "../utils/venueHelpers";
+import { fetchLatestVibe } from "../utils/vibeHelpers";
+import { formatTimeAgo } from "../utils/timeHelpers";
+import { getDisplayValue, MISSING_DATA_PLACEHOLDER } from "../utils/displayHelpers";
+import { mapCoverPriceToUI, mapBarTierToUI, mapBarTierToSymbol, mapLegacyDrinksPriceToTier } from "../utils/priceMapping";
 
-// Helper functions (same as App.js)
-async function fetchLatestVibe(venueKey) {
-  if (!venueKey) return null;
-
-  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-
-  const { data, error } = await supabase
-    .from("vibes")
-    .select("id, crowd, ratio, line, cover, drinks_price, music, bar_type, created_at, stay_duration, tags")
-    .eq("venue_id", venueKey)
-    .gte("created_at", since)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) {
-    console.log("Erro a buscar latest vibe:", error.message);
-    return null;
-  }
-
-  return data;
-}
+// Helper functions
 
 async function fetchRecentVibes(venueKey, hours = 2) {
   if (!venueKey) return [];
@@ -41,14 +25,14 @@ async function fetchRecentVibes(venueKey, hours = 2) {
 
   const { data, error } = await supabase
     .from("vibes")
-    .select("crowd, ratio, line, cover, drinks_price, music, bar_type, created_at")
+    .select("crowd, ratio, line, cover, drinks_price, drinks_price_tier, music, bar_type, created_at")
     .eq("venue_id", venueKey)
     .gte("created_at", since)
     .order("created_at", { ascending: false })
     .limit(20);
 
   if (error) {
-    console.log("Erro a buscar recent vibes:", error.message);
+    console.log("Error fetching recent vibes:", error.message);
     return [];
   }
 
@@ -120,20 +104,6 @@ function getBarTypeLabel(barType) {
   }
 }
 
-function formatTimeAgo(dateString) {
-  if (!dateString) return "";
-  const now = new Date();
-  const then = new Date(dateString);
-  const diffMs = now - then;
-  const diffMins = Math.floor(diffMs / 60000);
-
-  if (diffMins < 1) return "just now";
-  if (diffMins < 60) return `about ${diffMins} minute${diffMins === 1 ? "" : "s"} ago`;
-  const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `about ${diffHours} hour${diffHours === 1 ? "" : "s"} ago`;
-  const diffDays = Math.floor(diffHours / 24);
-  return `about ${diffDays} day${diffDays === 1 ? "" : "s"} ago`;
-}
 
 function openMaps(address) {
   const encodedAddress = encodeURIComponent(address);
@@ -166,15 +136,20 @@ export default function VenueDetailsLovable({
       if (!venue) return;
       setLoading(true);
       // Defensive: ensure we have a valid key
-      const key = venue?.id || venue?.name;
+      const key = getVenueKeySafe(venue);
       if (!key) {
+        console.error('[VenueDetails] Venue missing ID:', venue);
         if (isMounted) {
           setLoading(false);
         }
         return;
       }
       const [latest, recent] = await Promise.all([
-        fetchLatestVibe(key),
+        fetchLatestVibe(key, { 
+          showError: true, 
+          retries: 2,
+          selectFields: "id, crowd, ratio, line, cover, drinks_price, drinks_price_tier, music, bar_type, created_at, stay_duration, tags"
+        }),
         fetchRecentVibes(key, 2),
       ]);
       if (isMounted) {
@@ -212,9 +187,8 @@ export default function VenueDetailsLovable({
   const vibeCount = recentVibes.length;
 
   const crowdEmoji = hasVibe ? getCrowdEmoji(latestVibe.crowd) : "❓";
-  const crowdText = hasVibe ? latestVibe.crowd : "Unknown";
-  const lineText = hasVibe ? latestVibe.line : "Unknown";
-  const coverText = hasVibe ? latestVibe.cover : "Unknown";
+  const crowdText = getDisplayValue(hasVibe ? latestVibe.crowd : null, MISSING_DATA_PLACEHOLDER);
+  const lineText = getDisplayValue(hasVibe ? latestVibe.line : null, MISSING_DATA_PLACEHOLDER);
   const musicText = hasVibe ? latestVibe.music : null;
   const musicEmoji = musicText ? getMusicEmoji(musicText) : "🎵";
   const barType = hasVibe ? latestVibe.bar_type : null;
@@ -225,10 +199,44 @@ export default function VenueDetailsLovable({
     ? mapRatioToPercent(latestVibe.ratio)
     : { guys: 50, girls: 50 };
 
-  const ratioText = hasVibe
-    ? latestVibe.ratio
-    : "Unknown";
+  const ratioText = getDisplayValue(hasVibe ? latestVibe.ratio : null, MISSING_DATA_PLACEHOLDER);
 
+  // Validate venue type
+  const venueTypeValidation = validateVenueType(venue?.venue_type);
+  const venueType = venueTypeValidation.valid ? venueTypeValidation.type : null;
+  const isBar = isBarHelper(venue?.venue_type);
+  
+  // For bars: use drinks_price_tier (new system), fallback to legacy drinks_price
+  // For clubs: drinks_price is actually cover charge
+  let drinksPriceText = null;
+  let coverText = null;
+  if (isBar && hasVibe) {
+    if (latestVibe.drinks_price_tier) {
+      // New tier system: display full label (e.g., "$$ Normal")
+      drinksPriceText = mapBarTierToUI(latestVibe.drinks_price_tier);
+    } else if (latestVibe.drinks_price) {
+      // Backward compatibility: convert legacy drinks_price to tier label
+      const tier = mapLegacyDrinksPriceToTier(latestVibe.drinks_price);
+      drinksPriceText = tier ? mapBarTierToUI(tier) : null;
+    }
+    drinksPriceText = getDisplayValue(drinksPriceText, MISSING_DATA_PLACEHOLDER);
+  } else if (!isBar && hasVibe) {
+    // Club: cover charge
+    if (latestVibe.cover) {
+      coverText = mapCoverPriceToUI(latestVibe.cover);
+    }
+    coverText = getDisplayValue(coverText, MISSING_DATA_PLACEHOLDER);
+  } else {
+    // No vibe data
+    coverText = getDisplayValue(null, MISSING_DATA_PLACEHOLDER);
+  }
+  
+  // Log error if venue type is invalid (for monitoring)
+  if (!venueTypeValidation.valid) {
+    console.error(`[VenueDetails] Invalid venue_type for "${venue?.name}": ${venueTypeValidation.error}`);
+    // In production, you'd send this to your monitoring service
+    // e.g., Sentry.captureException(new Error(`Invalid venue_type: ${venueTypeValidation.error}`));
+  }
 
   return (
     <View style={styles.container}>
@@ -255,11 +263,18 @@ export default function VenueDetailsLovable({
             <Text style={styles.venueName}>{venueName}</Text>
             <View style={styles.typeBadge}>
               {(() => {
-                const venueType = venue?.venue_type ? venue.venue_type.trim().toLowerCase() : null;
-                if (!venueType) {
-                  console.warn(`[VenueDetails] Warning: venue "${venue?.name}" has null/undefined venue_type, defaulting to CLUB`);
+                if (!venueTypeValidation.valid) {
+                  // Show error badge for invalid venue type
+                  return (
+                    <>
+                      <Text style={styles.typeBadgeEmoji}>⚠️</Text>
+                      <Text style={[styles.typeBadgeText, styles.typeBadgeError]}>
+                        ERROR
+                      </Text>
+                    </>
+                  );
                 }
-                const isClub = !venueType || venueType === "club";
+                const isClub = venueType === "club";
                 return (
                   <>
                     <Text style={styles.typeBadgeEmoji}>
@@ -316,16 +331,18 @@ export default function VenueDetailsLovable({
                 </View>
               </View>
               <View style={styles.rightNowRow}>
-                <View style={styles.rightNowItem}>
-                  <View>
-                    <Text style={styles.rightNowLabel}>Line</Text>
-                    <Text style={styles.rightNowValue}>{lineText}</Text>
+                {!isBar && (
+                  <View style={styles.rightNowItem}>
+                    <View>
+                      <Text style={styles.rightNowLabel}>Line</Text>
+                      <Text style={styles.rightNowValue}>{lineText}</Text>
+                    </View>
                   </View>
-                </View>
+                )}
                 <View style={styles.rightNowItem}>
                   <View>
-                    <Text style={styles.rightNowLabel}>Cover</Text>
-                    <Text style={styles.rightNowValue}>{coverText}</Text>
+                    <Text style={styles.rightNowLabel}>{isBar ? "Drinks" : "Cover"}</Text>
+                    <Text style={styles.rightNowValue}>{isBar ? drinksPriceText : coverText}</Text>
                   </View>
                 </View>
               </View>
@@ -348,6 +365,14 @@ export default function VenueDetailsLovable({
                   {formatTimeAgo(latestVibe.created_at)}
                 </Text>
               </View>
+              {((!isBar && (lineText === MISSING_DATA_PLACEHOLDER || coverText === MISSING_DATA_PLACEHOLDER)) || 
+                (isBar && drinksPriceText === MISSING_DATA_PLACEHOLDER) ||
+                crowdText === MISSING_DATA_PLACEHOLDER || 
+                ratioText === MISSING_DATA_PLACEHOLDER) && (
+                <Text style={styles.helperText}>
+                  {MISSING_DATA_PLACEHOLDER} indicates no recent data from users
+                </Text>
+              )}
             </>
           )}
         </View>
@@ -491,6 +516,9 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "600",
   },
+  typeBadgeError: {
+    color: "#EF4444",
+  },
   venueAddress: {
     color: "#9CA3AF",
     fontSize: 14,
@@ -574,6 +602,13 @@ const styles = StyleSheet.create({
   footerText: {
     color: "#9CA3AF",
     fontSize: 12,
+  },
+  helperText: {
+    color: "#6B7280",
+    fontSize: 11,
+    fontStyle: "italic",
+    marginTop: 12,
+    textAlign: "center",
   },
   emptyState: {
     paddingVertical: 24,

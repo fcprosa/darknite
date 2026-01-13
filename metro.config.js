@@ -3,10 +3,10 @@ const { getDefaultConfig } = require("expo/metro-config");
 
 const config = getDefaultConfig(__dirname);
 
-// Isto é o MAIS importante: diz ao Metro para preferir builds "browser"
+// This is the MOST important: tells Metro to prefer "browser" builds
 config.resolver.resolverMainFields = ["react-native", "browser", "main"];
 
-// Fallback: se ainda assim tentar puxar "ws", nós “enganamos” o import
+// Fallback: if it still tries to pull "ws", we "trick" the import
 config.resolver.extraNodeModules = {
   ws: path.resolve(__dirname, "shims/ws.js"),
 };

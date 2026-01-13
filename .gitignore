@@ -40,3 +40,23 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Cursor / IDE / logs
+.cursor/
+*.log
+
+# Expo local
+.expo-shared/
+*.expo*
+
+# EAS / credentials (se existirem)
+eas.json
+credentials.json
+
+# Firebase (se algum dia adicionares)
+google-services.json
+GoogleService-Info.plist
+
+# Supabase local (se usares CLI)
+supabase/.temp/
+supabase/.branches/

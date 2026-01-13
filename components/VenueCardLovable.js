@@ -1,6 +1,10 @@
 import React, { useRef } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, Animated } from "react-native";
 import * as Haptics from "expo-haptics";
+import { validateVenueType, isBar as isBarHelper } from "../utils/venueHelpers";
+import { mapCoverPriceToUI, mapBarTierToSymbol, mapBarTierToUI, mapLegacyDrinksPriceToTier } from "../utils/priceMapping";
+import { formatTimeAgo } from "../utils/timeHelpers";
+import { getDisplayValue } from "../utils/displayHelpers";
 
 function getMusicEmoji(music) {
   if (!music) return "🎵";
@@ -24,20 +28,6 @@ function getCrowdEmoji(crowd) {
   }
 }
 
-function formatTimeAgoCompact(dateString) {
-  if (!dateString) return "";
-  const now = new Date();
-  const then = new Date(dateString);
-  const diffMs = now - then;
-  const diffMins = Math.floor(diffMs / 60000);
-
-  if (diffMins < 1) return "just now";
-  if (diffMins < 60) return `${diffMins}m ago`;
-  const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
-  const diffDays = Math.floor(diffHours / 24);
-  return `${diffDays}d ago`;
-}
 
 function getBarTypeEmoji(barType) {
   if (!barType) return "";
@@ -71,24 +61,49 @@ export default function VenueCardLovable({ venue, guys, girls, onPress, latestVi
   const normalizedGuys = (typeof guys === 'number' && !isNaN(guys)) ? guys : 50;
   const normalizedGirls = (typeof girls === 'number' && !isNaN(girls)) ? girls : 50;
 
-  // Determine venue type
-  const venueType = venue?.venue_type ? venue.venue_type.trim().toLowerCase() : null;
-  const isBar = venueType === "bar";
+  // Validate and determine venue type
+  const venueTypeValidation = validateVenueType(venue?.venue_type);
+  const venueType = venueTypeValidation.valid ? venueTypeValidation.type : null;
+  const isBar = isBarHelper(venue?.venue_type);
+  
+  // Log error if venue type is invalid (for monitoring)
+  if (!venueTypeValidation.valid) {
+    console.error(`[VenueCard] Invalid venue_type for "${venue?.name}": ${venueTypeValidation.error}`);
+    // In production, you'd send this to your monitoring service
+    // e.g., Sentry.captureException(new Error(`Invalid venue_type: ${venueTypeValidation.error}`));
+  }
   
   // Get data from latestVibe
   const crowdLevel = latestVibe?.crowd || null;
   const crowdEmoji = crowdLevel ? getCrowdEmoji(crowdLevel) : "❓";
-  const lineText = latestVibe?.line || "No line";
-  const coverText = latestVibe?.cover || "Free";
+  const lineText = getDisplayValue(latestVibe?.line, "No line");
+  const coverText = getDisplayValue(latestVibe?.cover, "Free");
   const musicText = latestVibe?.music || null;
   const musicEmoji = musicText ? getMusicEmoji(musicText) : "🎵";
-  const timeAgo = latestVibe?.created_at ? formatTimeAgoCompact(latestVibe.created_at) : null;
+  const timeAgo = latestVibe?.created_at ? formatTimeAgo(latestVibe.created_at, true) : null;
   
   // Bar-specific fields
   const barType = latestVibe?.bar_type || null;
-  const barTypeEmoji = barType ? getBarTypeEmoji(barType) : "—";
-  const barTypeLabel = barType ? getBarTypeLabel(barType) : "—";
-  const drinksPrice = latestVibe?.drinks_price || null;
+  const barTypeEmoji = barType ? getBarTypeEmoji(barType) : getDisplayValue(null);
+  const barTypeLabel = barType ? getBarTypeLabel(barType) : getDisplayValue(null);
+  
+  // For bars: use drinks_price_tier (new system), fallback to legacy drinks_price
+  // For clubs: drinks_price is actually cover charge, use that
+  let drinksPrice = null;
+  if (isBar) {
+    if (latestVibe?.drinks_price_tier) {
+      // New tier system: display symbol (e.g., "$$")
+      drinksPrice = mapBarTierToSymbol(latestVibe.drinks_price_tier);
+    } else if (latestVibe?.drinks_price) {
+      // Backward compatibility: convert legacy drinks_price to tier symbol
+      const tier = mapLegacyDrinksPriceToTier(latestVibe.drinks_price);
+      drinksPrice = tier ? mapBarTierToSymbol(tier) : null;
+    }
+  } else {
+    // Club: drinks_price is actually cover charge
+    drinksPrice = latestVibe?.cover ? mapCoverPriceToUI(latestVibe.cover) : null;
+  }
+  
   const ratioText = latestVibe?.ratio || null;
   const ratioEmoji = ratioText ? getRatioEmoji(ratioText) : null;
 
@@ -135,11 +150,18 @@ export default function VenueCardLovable({ venue, guys, girls, onPress, latestVi
               <Text style={styles.venueName}>{venue.name}</Text>
               <View style={styles.typeBadge}>
                 {(() => {
-                  const venueType = venue?.venue_type ? venue.venue_type.trim().toLowerCase() : null;
-                  if (!venueType) {
-                    console.warn(`[VenueCard] Warning: venue "${venue.name}" has null/undefined venue_type, defaulting to CLUB`);
+                  if (!venueTypeValidation.valid) {
+                    // Show error badge for invalid venue type
+                    return (
+                      <>
+                        <Text style={styles.typeBadgeEmoji}>⚠️</Text>
+                        <Text style={[styles.typeBadgeText, styles.typeBadgeError]}>
+                          ERROR
+                        </Text>
+                      </>
+                    );
                   }
-                  const isClub = !venueType || venueType === "club";
+                  const isClub = venueType === "club";
                   return (
                     <>
                       <Text style={styles.typeBadgeEmoji}>
@@ -182,11 +204,11 @@ export default function VenueCardLovable({ venue, guys, girls, onPress, latestVi
               </View>
               <View style={styles.iconItem}>
                 <Text style={styles.iconEmoji}>🍹</Text>
-                <Text style={styles.iconText}>{drinksPrice || "—"}</Text>
+                <Text style={styles.iconText}>{getDisplayValue(drinksPrice)}</Text>
               </View>
               <View style={styles.iconItem}>
                 <Text style={styles.iconEmoji}>{musicEmoji}</Text>
-                <Text style={styles.iconText} numberOfLines={1}>{musicText || "—"}</Text>
+                <Text style={styles.iconText} numberOfLines={1}>{getDisplayValue(musicText)}</Text>
               </View>
               {ratioText && ratioEmoji && (
                 <View style={styles.iconItem}>
@@ -217,20 +239,29 @@ export default function VenueCardLovable({ venue, guys, girls, onPress, latestVi
         </View>
 
         {/* Thin Ratio Bar - Show for clubs always, for bars only if ratio exists */}
-        {(!isBar || ratioText) && (
-          <View style={styles.ratioBar}>
-            {ratioText ? (
-              // Show colored segments if ratio exists
-              <>
-                <View style={[styles.ratioSegmentGuys, { flex: normalizedGuys }]} />
-                <View style={[styles.ratioSegmentGirls, { flex: normalizedGirls }]} />
-              </>
-            ) : (
-              // Neutral style if ratio is missing (for clubs with no vibe yet)
-              <View style={styles.ratioSegmentNeutral} />
-            )}
-          </View>
-        )}
+        {(() => {
+          // Determine if we should show the ratio bar
+          // For clubs: always show (even if no vibe, show neutral state)
+          // For bars: only show if ratio exists in the vibe
+          const shouldShowRatioBar = !isBar || (isBar && ratioText);
+          
+          if (!shouldShowRatioBar) return null;
+          
+          return (
+            <View style={styles.ratioBar}>
+              {ratioText ? (
+                // Show colored segments if ratio exists
+                <>
+                  <View style={[styles.ratioSegmentGuys, { flex: normalizedGuys }]} />
+                  <View style={[styles.ratioSegmentGirls, { flex: normalizedGirls }]} />
+                </>
+              ) : (
+                // Neutral style if ratio is missing (for clubs with no vibe yet)
+                <View style={styles.ratioSegmentNeutral} />
+              )}
+            </View>
+          );
+        })()}
       </TouchableOpacity>
     </Animated.View>
   );
@@ -285,6 +316,9 @@ const styles = StyleSheet.create({
     color: "#A855F7",
     fontSize: 10,
     fontWeight: "600",
+  },
+  typeBadgeError: {
+    color: "#EF4444",
   },
   venueNeighborhood: {
     color: "#9CA3AF",

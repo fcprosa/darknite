@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, memo } from "react";
 import {
   View,
   Text,
@@ -11,11 +11,16 @@ import {
   Easing,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useNavigation } from "@react-navigation/native";
 import * as Haptics from "expo-haptics";
 import { useAuth } from "../contexts/AuthContext";
 import { supabase } from "../utils/supabase";
+import { validateVenueType, getVenueKey, getVenueKeySafe } from "../utils/venueHelpers";
+import { mapCoverPriceToDB, BAR_TIER_UI_LABELS, BAR_DRINKS_TIER_OPTIONS } from "../utils/priceMapping";
+import Toast from "./Toast";
 
 // Helper functions for emojis
 function getCrowdEmoji(crowd) {
@@ -60,7 +65,7 @@ function getMusicEmoji(music) {
   return "🎵";
 }
 
-function VibeSummary({
+const VibeSummary = memo(function VibeSummary({
   crowdLevel,
   ratio,
   line,
@@ -74,9 +79,10 @@ function VibeSummary({
   isFinalStep,
   isFormValid,
   isBar,
+  animations,
 }) {
-  const summaryScale = useRef(new Animated.Value(1)).current;
-  const summaryGlow = useRef(new Animated.Value(0)).current;
+  const summaryScale = animations.summaryScale;
+  const summaryGlow = animations.summaryGlow;
 
   useEffect(() => {
     if (isFinalStep && isFormValid) {
@@ -212,9 +218,9 @@ function VibeSummary({
       </View>
     </Animated.View>
   );
-}
+});
 
-function OptionChip({ label, selected, onPress, large = false, hasSelection = false }) {
+const OptionChip = memo(function OptionChip({ label, selected, onPress, large = false, hasSelection = false }) {
   const pressScaleAnim = useRef(new Animated.Value(1)).current;
   const selectedScaleAnim = useRef(new Animated.Value(selected ? 1.05 : 1)).current;
   const borderAnim = useRef(new Animated.Value(selected ? 1 : 0)).current;
@@ -349,12 +355,15 @@ function OptionChip({ label, selected, onPress, large = false, hasSelection = fa
       </TouchableOpacity>
     </Animated.View>
   );
-}
+});
 
 const BAR_TYPE_OPTIONS = ["cocktail", "sports", "dive", "wine", "speakeasy"];
 
-export default function PostVibeScreen({ venue, navigation, onBack, onSuccess, route }) {
-  const { user, isAuthenticated } = useAuth();
+export default function PostVibeScreen({ venue, navigation: navigationProp, onBack, onSuccess, route }) {
+  const { user, isAuthenticated, setShowAuthModal } = useAuth();
+  const navigationHook = useNavigation();
+  // Use prop navigation if available, otherwise fall back to hook
+  const navigation = navigationProp || navigationHook;
   const insets = useSafeAreaInsets();
   const [currentStep, setCurrentStep] = useState(0);
   const [crowdLevel, setCrowdLevel] = useState(null);
@@ -370,58 +379,118 @@ export default function PostVibeScreen({ venue, navigation, onBack, onSuccess, r
   const [showExtras, setShowExtras] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [venueType, setVenueType] = useState(null);
+  const [venueTypeLoading, setVenueTypeLoading] = useState(true);
+  const [showToast, setShowToast] = useState(false);
+  const [toastMessage, setToastMessage] = useState("");
+  
+  // Ref to prevent double submission
+  const hasSubmittedRef = useRef(false);
 
-  // Animation for step transitions
-  const fadeAnim = useRef(new Animated.Value(1)).current;
+  // Consolidate all animation values
+  const animations = useRef({
+    fade: new Animated.Value(1),
+    summaryScale: new Animated.Value(1),
+    summaryGlow: new Animated.Value(0),
+  }).current;
 
   // Fetch venue_type if not provided - CRITICAL: must know venue type to build correct steps
   useEffect(() => {
     async function fetchVenueType() {
+      setVenueTypeLoading(true);
+      
+      if (!venue) {
+        console.error("[PostVibe] No venue object provided - cannot determine venue_type");
+        Alert.alert(
+          "Missing Venue Information",
+          "No venue information provided. Cannot proceed with posting a vibe.",
+          [{ text: "OK" }]
+        );
+        setVenueType(null);
+        setVenueTypeLoading(false);
+        return;
+      }
+      
       if (venue?.venue_type) {
-        // Normalize to lowercase
-        const normalized = venue.venue_type.trim().toLowerCase();
-        console.log("[PostVibe] Using venue_type from prop:", normalized);
-        if (normalized !== "club" && normalized !== "bar") {
-          console.warn(`[PostVibe] Warning: unexpected venue_type value "${normalized}" for venue "${venue.name}"`);
+        // Validate venue_type from prop
+        const validation = validateVenueType(venue.venue_type);
+        if (!validation.valid) {
+          console.error(`[PostVibe] Invalid venue_type: ${validation.error} for venue "${venue.name}"`);
+          Alert.alert(
+            "Invalid Venue Type",
+            `This venue has an invalid or missing type: ${validation.error}.\n\nPlease contact support or update the venue information before posting a vibe.`,
+            [{ text: "OK" }]
+          );
+          setVenueType(null);
+          setVenueTypeLoading(false);
+          return;
         }
-        setVenueType(normalized);
-      } else if (venue?.id || venue?.name) {
+        console.log("[PostVibe] Using venue_type from prop:", validation.type);
+        setVenueType(validation.type);
+        setVenueTypeLoading(false);
+      } else {
         // Fetch venue_type from database - REQUIRED for step building
-        console.log("[PostVibe] Fetching venue_type for:", venue.id || venue.name);
-        let query = supabase.from("venues").select("venue_type");
-        
-        if (venue.id) {
-          query = query.eq("id", venue.id);
-        } else if (venue.name) {
-          query = query.eq("name", venue.name);
+        const venueKey = getVenueKeySafe(venue);
+        if (!venueKey) {
+          console.error("[PostVibe] Venue missing ID:", venue);
+          Alert.alert("Error", "Invalid venue: missing ID. Please try again.");
+          setVenueTypeLoading(false);
+          return;
         }
-        
-        const { data, error } = await query.maybeSingle();
+        console.log("[PostVibe] Fetching venue_type for:", venueKey);
+        const { data, error } = await supabase
+          .from("venues")
+          .select("venue_type")
+          .eq("id", venueKey)
+          .maybeSingle();
         
         if (!error && data) {
-          const normalized = data.venue_type ? data.venue_type.trim().toLowerCase() : null;
-          if (!normalized) {
-            console.warn(`[PostVibe] Warning: venue "${venue.name}" has null/undefined venue_type in database! Defaulting to "club"`);
-            setVenueType("club");
-          } else if (normalized !== "club" && normalized !== "bar") {
-            console.warn(`[PostVibe] Warning: unexpected venue_type value "${normalized}" for venue "${venue.name}"`);
-            setVenueType(normalized);
-          } else {
-            console.log("[PostVibe] Fetched venue_type:", normalized);
-            setVenueType(normalized);
+          const validation = validateVenueType(data.venue_type);
+          if (!validation.valid) {
+            console.error(`[PostVibe] Invalid venue_type in database: ${validation.error} for venue "${venue.name}"`);
+            Alert.alert(
+              "Invalid Venue Type",
+              `This venue has an invalid or missing type in the database: ${validation.error}.\n\nPlease contact support or update the venue information before posting a vibe.`,
+              [{ text: "OK" }]
+            );
+            setVenueType(null);
+            setVenueTypeLoading(false);
+            return;
           }
+          console.log("[PostVibe] Fetched venue_type:", validation.type);
+          setVenueType(validation.type);
+          setVenueTypeLoading(false);
         } else {
           console.error("[PostVibe] Error fetching venue_type:", error);
-          console.warn(`[PostVibe] Cannot fetch venue_type, defaulting to "club"`);
-          setVenueType("club");
+          Alert.alert(
+            "Venue Type Error",
+            `Unable to determine this venue's type. Please try again or contact support.\n\nError: ${error?.message || "Unknown error"}`,
+            [{ text: "OK" }]
+          );
+          setVenueType(null);
+          setVenueTypeLoading(false);
         }
-      } else {
-        console.error("[PostVibe] No venue object provided - cannot determine venue_type, defaulting to 'club'");
-        setVenueType("club");
       }
     }
     fetchVenueType();
   }, [venue]);
+
+  // Check authentication on mount (only after venue type is loaded to avoid multiple alerts)
+  useEffect(() => {
+    if (!venueTypeLoading && !isAuthenticated) {
+      Alert.alert(
+        "Authentication required",
+        "Please sign in to post vibes",
+        [{ text: "OK", onPress: () => {
+          if (onBack) {
+            onBack();
+          } else if (navigation.canGoBack()) {
+            navigation.goBack();
+          }
+          setShowAuthModal(true);
+        }}]
+      );
+    }
+  }, [isAuthenticated, venueTypeLoading, onBack, navigation, setShowAuthModal]);
 
   // Reset all form state when component mounts or venue changes
   useEffect(() => {
@@ -438,6 +507,8 @@ export default function PostVibeScreen({ venue, navigation, onBack, onSuccess, r
     setSelectedTags([]);
     setShowExtras(false);
     setSubmitting(false);
+    hasSubmittedRef.current = false; // Reset submission flag
+    setShowToast(false); // Hide any visible toast
   }, [venue?.id, venue?.name]);
 
   const crowdOptions = ["Dead", "Chill", "Fun", "Packed", "Chaos"];
@@ -446,23 +517,13 @@ export default function PostVibeScreen({ venue, navigation, onBack, onSuccess, r
   
   // Cover options for clubs (cover charge)
   const clubCoverOptions = ["Free", "< $10", "$10-20", "$20-30", "$30+"];
-  // Drink price options for bars (UI labels - will be mapped to DB values)
-  const barDrinkPriceOptions = ["Free", "< $10", "$10-20", "$20-30", "$30+"];
-  
-  // Map UI label to DB value for drinks_price
-  const mapDrinksPriceToDB = (uiLabel) => {
-    if (!uiLabel) return null;
-    // Normalize en-dash to hyphen
-    const normalized = uiLabel.replace(/–/g, "-").trim();
-    const mapping = {
-      "Free": null, // Free drinks = null in DB
-      "< $10": "$",
-      "$10-20": "$$",
-      "$20-30": "$$$",
-      "$30+": "$$$$",
-    };
-    return mapping[normalized] ?? null;
-  };
+  // Drink price tier options for bars (display labels)
+  const barDrinkPriceOptions = [
+    BAR_TIER_UI_LABELS.cheap,
+    BAR_TIER_UI_LABELS.normal,
+    BAR_TIER_UI_LABELS.expensive,
+    BAR_TIER_UI_LABELS.crazy,
+  ];
   
   const musicOptions = [
     "Hip-Hop / R&B",
@@ -481,6 +542,38 @@ export default function PostVibeScreen({ venue, navigation, onBack, onSuccess, r
     "Strong drinks",
   ];
   const bartenderOptions = ["Polite", "Neutral", "Rude"];
+  
+  // Show loading state while venue type is being determined
+  if (venueTypeLoading) {
+    return (
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
+        <View style={styles.container}>
+          <View style={styles.header}>
+            <View style={styles.backButton} />
+            <View style={styles.headerTitleContainer}>
+              <Text style={styles.headerTitle}>Post your vibe 🔥</Text>
+            </View>
+            <TouchableOpacity style={styles.closeButton} onPress={() => {
+              if (onBack) {
+                onBack();
+              } else if (navigation.canGoBack()) {
+                navigation.goBack();
+              }
+            }}>
+              <Text style={styles.closeButtonText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.loadingContainer}>
+            <View style={styles.loadingContent}>
+              <ActivityIndicator size="large" color="#A855F7" style={styles.loadingSpinner} />
+              <Text style={styles.loadingText}>Loading venue information...</Text>
+              <Text style={styles.loadingSubtext}>Please wait a moment</Text>
+            </View>
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
   
   // Determine if venue is a bar
   const isBar = venueType === "bar";
@@ -563,6 +656,37 @@ export default function PostVibeScreen({ venue, navigation, onBack, onSuccess, r
   const REQUIRED_STEPS = steps.filter(step => !step.optional).length;
 
   const handleSubmitVibe = async () => {
+    // Prevent double submission
+    if (hasSubmittedRef.current || submitting) {
+      console.log("[PostVibe] Submission already in progress, ignoring duplicate call");
+      return;
+    }
+
+    // Validate authentication first
+    if (!isAuthenticated || !user || !user.id) {
+      Alert.alert(
+        "Sign in required",
+        "You must be signed in to post vibes. Would you like to sign in now?",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Sign in",
+            onPress: () => {
+              // Close this screen and show auth modal
+              if (onBack) {
+                onBack();
+              } else if (navigation?.canGoBack?.()) {
+                navigation.goBack();
+              }
+              // Trigger auth modal
+              setShowAuthModal(true);
+            }
+          }
+        ]
+      );
+      return;
+    }
+
     if (!venue) {
       Alert.alert("Error", "No venue selected.");
       return;
@@ -582,7 +706,8 @@ export default function PostVibeScreen({ venue, navigation, onBack, onSuccess, r
       return;
     }
 
-    const venueKey = venue.id || venue.name;
+    const venueKey = getVenueKey(venue); // Throws if venue.id is missing
+    hasSubmittedRef.current = true;
     try {
       setSubmitting(true);
 
@@ -593,30 +718,26 @@ export default function PostVibeScreen({ venue, navigation, onBack, onSuccess, r
         music,
       };
       
-      // Club-specific fields
-      if (!isBar) {
-        vibeData.ratio = ratio;
-        vibeData.line = line;
-        vibeData.cover = cover;
-        // DO NOT include bar-specific fields for clubs (let DB use defaults/NULL)
-        // Do not set bar_type, drinks_price, or bartender_vibe - omit them entirely
-      }
-      
       // Bar-specific fields
       if (isBar) {
         vibeData.bar_type = barType;
-        // Map UI label to DB value for drinks_price
-        const dbDrinksPrice = mapDrinksPriceToDB(drinksPrice);
-        if (dbDrinksPrice !== null) {
-          vibeData.drinks_price = dbDrinksPrice;
-        } else if (drinksPrice === "Free") {
-          // Free = null in DB (allowed)
-          vibeData.drinks_price = null;
+        // Map UI label (e.g., "$ Cheap") to tier value (e.g., "cheap") for drinks_price_tier
+        if (drinksPrice) {
+          // Find which tier this UI label corresponds to
+          const tierKey = Object.keys(BAR_TIER_UI_LABELS).find(
+            key => BAR_TIER_UI_LABELS[key] === drinksPrice
+          );
+          if (tierKey && BAR_DRINKS_TIER_OPTIONS.includes(tierKey)) {
+            vibeData.drinks_price_tier = tierKey;
+          } else {
+            console.warn("[PostVibe] Invalid drinksPrice tier for bar:", drinksPrice);
+            vibeData.drinks_price_tier = null;
+          }
         } else {
-          // Invalid or missing - log and set null
-          console.warn("[PostVibe] Invalid or missing drinksPrice for bar:", drinksPrice);
-          vibeData.drinks_price = null;
+          vibeData.drinks_price_tier = null;
         }
+        // Bars do NOT use drinks_price (that's for club cover charges)
+        vibeData.drinks_price = null;
         // Optional ratio for bars (from extras) - only include if set
         if (ratio) {
           vibeData.ratio = ratio;
@@ -631,6 +752,18 @@ export default function PostVibeScreen({ venue, navigation, onBack, onSuccess, r
         vibeData.tags = null;
         vibeData.stay_duration = null;
       } else {
+        // Club-specific fields
+        vibeData.ratio = ratio;
+        vibeData.line = line;
+        // Map cover UI label to DB value for clubs
+        const dbCoverPrice = mapCoverPriceToDB(cover);
+        if (dbCoverPrice !== null) {
+          vibeData.cover = dbCoverPrice;
+        } else {
+          vibeData.cover = null;
+        }
+        // Clubs do NOT use drinks_price_tier (that's for bars)
+        vibeData.drinks_price_tier = null;
         // Club-specific optional extras
         if (stayDuration) vibeData.stay_duration = stayDuration;
         if (selectedTags.length > 0) vibeData.tags = selectedTags;
@@ -646,15 +779,19 @@ export default function PostVibeScreen({ venue, navigation, onBack, onSuccess, r
       const { data, error } = await supabase.from("vibes").insert([vibeData]);
 
       if (error) {
-        console.error("Erro ao inserir vibe:", error);
+        console.error("Error inserting vibe:", error);
         Alert.alert("Error", "Could not post vibe. Try again.");
+        hasSubmittedRef.current = false;
         setSubmitting(false);
         return;
       }
 
-      // Only trigger success and navigate after successful insert
-      console.log("Vibe gravado:", data);
-      Alert.alert("Thanks!", "Your vibe was posted.");
+      // Success! Show toast and navigate
+      console.log("Vibe saved:", data);
+      
+      // Show toast notification
+      setToastMessage("Vibe posted ✅");
+      setShowToast(true);
       
       // Call onSuccess callback (which should refresh feed)
       try {
@@ -665,50 +802,78 @@ export default function PostVibeScreen({ venue, navigation, onBack, onSuccess, r
         console.error("[PostVibe] Error in onSuccess callback:", e);
       }
       
-      // Close the screen safely after success and navigate based on origin
-      const handleSuccess = () => {
-        const origin = route?.params?.origin || 'home';
-        const tabNav = navigation?.getParent();
-        
-        if (origin === 'home') {
-          // Navigate back to Home tab and refresh
-          if (navigation?.canGoBack?.()) {
-            navigation.goBack();
-          } else if (tabNav) {
-            tabNav.navigate("HomeTab");
-          } else {
-            navigation?.navigate("HomeList");
-          }
-        } else {
-          // Other origins: use safe back handler
-          if (onBack) {
-            onBack();
-          } else if (navigation?.canGoBack?.()) {
-            navigation.goBack();
-          } else if (tabNav) {
-            tabNav.navigate("HomeTab");
-          } else {
-            navigation?.navigate("HomeList");
-          }
-        }
-      };
-      
-      // Small delay to ensure Alert is shown before navigation
+      // Navigate after a short delay to let toast appear
       setTimeout(() => {
-        handleSuccess();
-      }, 500);
+        navigateAfterSuccess();
+      }, 1600); // Slightly longer than toast duration
+      
     } catch (e) {
-      console.error("Erro:", e);
+      console.error("Error:", e);
       Alert.alert("Error", "Something went wrong.");
-    } finally {
+      hasSubmittedRef.current = false;
       setSubmitting(false);
+    }
+  };
+
+  const navigateAfterSuccess = () => {
+    try {
+      // First, try to navigate to VenueDetails for this venue
+      if (venue?.id) {
+        try {
+          if (navigation?.navigate) {
+            navigation.navigate("VenueDetails", {
+              venue: venue,
+              venueId: venue.id,
+            });
+            return;
+          }
+        } catch (navError) {
+          console.warn("[PostVibe] Could not navigate to VenueDetails, trying fallback:", navError);
+        }
+      }
+
+      // Fallback: Try to go back
+      if (navigation?.canGoBack?.()) {
+        navigation.goBack();
+        return;
+      }
+
+      // Last resort: Navigate to Home
+      try {
+        const tabNav = navigation?.getParent?.();
+        if (tabNav?.navigate) {
+          tabNav.navigate("HomeTab");
+          return;
+        }
+      } catch (e) {
+        console.warn("[PostVibe] Could not get tab navigation:", e);
+      }
+
+      // Final fallback: Try direct navigate to HomeList
+      if (navigation?.navigate) {
+        navigation.navigate("HomeList");
+        return;
+      }
+
+      // If all else fails, use onBack callback
+      if (onBack) {
+        onBack();
+      } else {
+        console.error("[PostVibe] All navigation methods failed");
+      }
+    } catch (error) {
+      console.error("[PostVibe] Navigation error:", error);
+      // Use onBack as absolute last resort
+      if (onBack) {
+        onBack();
+      }
     }
   };
 
   const advanceToNextStep = () => {
     if (currentStep < REQUIRED_STEPS - 1) {
       // Fade out then advance
-      Animated.timing(fadeAnim, {
+      Animated.timing(animations.fade, {
         toValue: 0,
         duration: 150,
         easing: Easing.ease,
@@ -716,7 +881,7 @@ export default function PostVibeScreen({ venue, navigation, onBack, onSuccess, r
       }).start(() => {
         setCurrentStep(currentStep + 1);
         // Fade in
-        Animated.timing(fadeAnim, {
+        Animated.timing(animations.fade, {
           toValue: 1,
           duration: 200,
           easing: Easing.ease,
@@ -729,14 +894,14 @@ export default function PostVibeScreen({ venue, navigation, onBack, onSuccess, r
 
   const handleBack = () => {
     if (currentStep > 0) {
-      Animated.timing(fadeAnim, {
+      Animated.timing(animations.fade, {
         toValue: 0,
         duration: 150,
         easing: Easing.ease,
         useNativeDriver: false,
       }).start(() => {
         setCurrentStep(currentStep - 1);
-        Animated.timing(fadeAnim, {
+        Animated.timing(animations.fade, {
           toValue: 1,
           duration: 200,
           easing: Easing.ease,
@@ -1006,6 +1171,52 @@ export default function PostVibeScreen({ venue, navigation, onBack, onSuccess, r
     );
   };
 
+  // Block form rendering if venueType is invalid/null
+  if (!venueType) {
+    return (
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
+        <View style={styles.container}>
+          {/* Drag Handle */}
+          <View style={styles.dragHandleContainer}>
+            <View style={styles.dragHandle} />
+          </View>
+
+          {/* Header */}
+          <View style={styles.header}>
+            <View style={styles.backButton} />
+            <View style={styles.headerTitleContainer}>
+              <Text style={styles.headerTitle}>Post your vibe 🔥</Text>
+            </View>
+            <TouchableOpacity style={styles.closeButton} onPress={handleCancel}>
+              <Text style={styles.closeButtonText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Error State */}
+          <View style={{ flex: 1, justifyContent: "center", alignItems: "center", padding: 24 }}>
+            <Text style={{ color: "#E5E7EB", fontSize: 18, fontWeight: "600", marginBottom: 8, textAlign: "center" }}>
+              Invalid Venue Type
+            </Text>
+            <Text style={{ color: "#9CA3AF", fontSize: 14, marginBottom: 24, textAlign: "center" }}>
+              This venue has an invalid or missing type. Please contact support or update the venue information before posting a vibe.
+            </Text>
+            <TouchableOpacity
+              style={{
+                backgroundColor: "#A855F7",
+                paddingHorizontal: 24,
+                paddingVertical: 12,
+                borderRadius: 8,
+              }}
+              onPress={handleCancel}
+            >
+              <Text style={{ color: "#FFFFFF", fontWeight: "600" }}>Go Back</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <KeyboardAvoidingView
@@ -1070,6 +1281,7 @@ export default function PostVibeScreen({ venue, navigation, onBack, onSuccess, r
             isFinalStep={isOnFinalStep}
             isFormValid={isFormValid}
             isBar={isBar}
+            animations={animations}
           />
 
           {/* Step Content */}
@@ -1091,7 +1303,7 @@ export default function PostVibeScreen({ venue, navigation, onBack, onSuccess, r
                 style={[
                   styles.contentContainer,
                   {
-                    opacity: fadeAnim,
+                    opacity: animations.fade,
                   },
                 ]}
               >
@@ -1106,10 +1318,10 @@ export default function PostVibeScreen({ venue, navigation, onBack, onSuccess, r
               <TouchableOpacity
                 style={[
                   styles.submitButton,
-                  (!isFormValid || submitting) && styles.submitButtonDisabled,
+                  (!isFormValid || submitting || hasSubmittedRef.current) && styles.submitButtonDisabled,
                 ]}
                 onPress={handleSubmitVibe}
-                disabled={!isFormValid || submitting}
+                disabled={!isFormValid || submitting || hasSubmittedRef.current}
                 activeOpacity={0.8}
               >
                 <Text style={styles.submitButtonText}>
@@ -1120,6 +1332,11 @@ export default function PostVibeScreen({ venue, navigation, onBack, onSuccess, r
           )}
         </View>
       </KeyboardAvoidingView>
+      <Toast
+        message={toastMessage}
+        visible={showToast}
+        onDismiss={() => setShowToast(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -1499,5 +1716,30 @@ const styles = StyleSheet.create({
   extrasChipTextSelected: {
     color: "#E5E7EB",
     fontWeight: "600",
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 24,
+    paddingVertical: 48,
+  },
+  loadingContent: {
+    alignItems: "center",
+  },
+  loadingSpinner: {
+    marginBottom: 24,
+  },
+  loadingText: {
+    color: "#F9FAFB",
+    fontSize: 16,
+    fontWeight: "600",
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  loadingSubtext: {
+    color: "#9CA3AF",
+    fontSize: 13,
+    textAlign: "center",
   },
 });

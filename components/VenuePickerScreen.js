@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput } from "react-native";
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { supabase } from "../utils/supabase";
@@ -72,15 +72,36 @@ export default function VenuePickerScreen({ navigation, route }) {
 
   const handleVenueSelect = (venue) => {
     console.log("[VenuePicker] Venue selected:", venue);
+    
+    // Validate venue type before proceeding
+    if (!venue.venue_type) {
+      Alert.alert(
+        "Invalid Venue",
+        "This venue is missing type information. Please contact support.",
+        [{ text: "OK" }]
+      );
+      return;
+    }
+
+    const normalizedType = venue.venue_type.trim().toLowerCase();
+    if (normalizedType !== 'club' && normalizedType !== 'bar') {
+      Alert.alert(
+        "Invalid Venue Type",
+        `Venue type "${normalizedType}" is not supported. Please contact support.`,
+        [{ text: "OK" }]
+      );
+      return;
+    }
+
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch (e) {}
     
-    // Navigate to PostVibe screen
+    // Navigate with validated data
     navigation.navigate("PostVibe", {
       venueId: venue.id,
       venueName: venue.name,
-      venueType: venue.venue_type,
+      venueType: normalizedType,
       neighborhood: venue.neighborhood,
     });
   };
