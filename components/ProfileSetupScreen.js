@@ -16,7 +16,8 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../contexts/AuthContext";
-import { supabase } from "../utils/supabase";
+import { getUserProfile, updateProfile, getUserProfileUsername } from "../services/profileService";
+import { getNeighborhoods } from "../services/venueService";
 
 const MUSIC_GENRES = [
   "Hip-Hop / R&B",
@@ -127,16 +128,9 @@ export default function ProfileSetupScreen({ navigation, route }) {
   useEffect(() => {
     async function fetchNeighborhoods() {
       try {
-        const { data, error } = await supabase
-          .from("venues")
-          .select("neighborhood")
-          .not("neighborhood", "is", null);
-
-        if (!error && data) {
-          const unique = [...new Set(data.map(v => v.neighborhood))].sort();
-          if (unique.length > 0) {
-            setNeighborhoods(unique);
-          }
+        const unique = await getNeighborhoods();
+        if (unique.length > 0) {
+          setNeighborhoods(unique);
         }
       } catch (e) {
         console.error("[ProfileSetup] Error fetching neighborhoods:", e);
