@@ -17,7 +17,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import * as Haptics from "expo-haptics";
 import { useAuth } from "../contexts/AuthContext";
-import { supabase } from "../utils/supabase";
+import { createVibe } from "../services/vibeService";
 import { validateVenueType, getVenueKey, getVenueKeySafe } from "../utils/venueHelpers";
 import { mapCoverPriceToDB, BAR_TIER_UI_LABELS, BAR_DRINKS_TIER_OPTIONS } from "../utils/priceMapping";
 import Toast from "./Toast";
@@ -437,14 +437,10 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
           return;
         }
         console.log("[PostVibe] Fetching venue_type for:", venueKey);
-        const { data, error } = await supabase
-          .from("venues")
-          .select("venue_type")
-          .eq("id", venueKey)
-          .maybeSingle();
+        const fetchedVenueType = await getVenueType(venueKey);
         
-        if (!error && data) {
-          const validation = validateVenueType(data.venue_type);
+        if (fetchedVenueType) {
+          const validation = validateVenueType(fetchedVenueType);
           if (!validation.valid) {
             console.error(`[PostVibe] Invalid venue_type in database: ${validation.error} for venue "${venue.name}"`);
             Alert.alert(
@@ -460,10 +456,10 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
           setVenueType(validation.type);
           setVenueTypeLoading(false);
         } else {
-          console.error("[PostVibe] Error fetching venue_type:", error);
+          console.error("[PostVibe] Error fetching venue_type");
           Alert.alert(
             "Venue Type Error",
-            `Unable to determine this venue's type. Please try again or contact support.\n\nError: ${error?.message || "Unknown error"}`,
+            `Unable to determine this venue's type. Please try again or contact support.`,
             [{ text: "OK" }]
           );
           setVenueType(null);
@@ -776,7 +772,7 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
       // Log final payload before insert (without secrets)
       console.log("[PostVibe] Final payload:", JSON.stringify(vibeData, null, 2));
 
-      const { data, error } = await supabase.from("vibes").insert([vibeData]);
+      const { data, error } = await createVibe(vibeData);
 
       if (error) {
         console.error("Error inserting vibe:", error);
