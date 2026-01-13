@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import VenueCardLovable from "./VenueCardLovable";
-import { fetchLatestVibe } from "../utils/vibeHelpers";
+import { getLatestVibe } from "../services/vibeService";
 import { getVenueKeySafe } from "../utils/venueHelpers";
 import { getVenuesByTypeAndNeighborhood } from "../services/venueService";
 
@@ -40,7 +40,7 @@ export default function NeighborhoodVenuesScreen({ navigation, route }) {
 
       // Fetch all vibes in parallel BEFORE setting state
       const vibePromises = fetchedVenues.map(venue => 
-        fetchLatestVibe(getVenueKeySafe(venue))
+        getLatestVibe(getVenueKeySafe(venue))
       );
       const vibeResults = await Promise.all(vibePromises);
 

@@ -4,7 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import VenueCardLovable from "./VenueCardLovable";
 import { mapCoverPriceToUI, BAR_TIER_UI_LABELS, mapBarTierToUI, mapLegacyDrinksPriceToTier } from "../utils/priceMapping";
-import { fetchLatestVibe } from "../utils/vibeHelpers";
+import { getLatestVibe } from "../services/vibeService";
 import { formatTimeAgo } from "../utils/timeHelpers";
 import { getVenueKeySafe } from "../utils/venueHelpers";
 import { useAppContext } from "../contexts/AppContext";
@@ -117,7 +117,7 @@ export default function ExploreScreen({ navigation, tabNavigation, onOpenVenue }
 
       // Fetch all vibes in parallel BEFORE setting state
       const vibePromises = fetchedVenues.map(venue => 
-        fetchLatestVibe(getVenueKeySafe(venue))
+        getLatestVibe(getVenueKeySafe(venue))
       );
       const vibeResults = await Promise.all(vibePromises);
 

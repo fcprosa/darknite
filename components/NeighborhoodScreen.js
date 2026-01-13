@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from "react-nati
 import { Ionicons } from "@expo/vector-icons";
 import VenueCardLovable from "./VenueCardLovable";
 import { supabase } from "../utils/supabase";
-import { fetchLatestVibe } from "../utils/vibeHelpers";
+import { getLatestVibe } from "../services/vibeService";
 import { getVenueKeySafe } from "../utils/venueHelpers";
 
 
@@ -33,7 +33,7 @@ export default function NeighborhoodScreen({ neighborhood, selectedType, venues,
       
       // Parallel fetching instead of sequential (much faster!)
       const vibePromises = venues.map(venue => 
-        fetchLatestVibe(venue.id || venue.name)
+        getLatestVibe(venue.id || venue.name)
       );
       
       const vibeResults = await Promise.all(vibePromises);

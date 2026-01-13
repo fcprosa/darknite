@@ -9,11 +9,11 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { supabase } from "../utils/supabase";
 import VenueCardLovable from "./VenueCardLovable";
 import { useAuth } from "../contexts/AuthContext";
 import { useAppContext } from "../contexts/AppContext";
-import { fetchLatestVibe } from "../utils/vibeHelpers";
+import { getHotNowVibes } from "../services/vibeService";
+import { getVenuesByIds } from "../services/venueService";
 import { getHotnessScore } from "../utils/scoreHelpers";
 import * as CONSTANTS from "../constants";
 
@@ -49,7 +49,7 @@ function HomeScreen({ navigation, tabNavigation, venues, onOpenVenue, onOpenShee
       const nextVibes = {};
       for (const v of venues) {
         const key = v.id || v.name;
-        const vibe = await fetchLatestVibe(key);
+        const vibe = await getLatestVibe(key);
         if (vibe) {
           nextVibes[key] = vibe;
           if (vibe.ratio) {
@@ -122,14 +122,6 @@ function HomeScreen({ navigation, tabNavigation, venues, onOpenVenue, onOpenShee
           .select("id, name, neighborhood, default_guys, default_girls, venue_type")
           .in("id", venueIds);
 
-        if (venuesError) {
-          console.error("[Home] Error fetching hot now venues:", venuesError.message);
-          if (!cancelled) {
-            setHotNowVenues([]);
-            setHotNowLoading(false);
-          }
-          return;
-        }
 
         // Join in-memory: create list with venue + latestVibe + guys/girls
         const hotNowList = (venuesData || []).map((venue) => {

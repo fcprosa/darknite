@@ -9,35 +9,11 @@ import {
   Linking,
   Platform,
 } from "react-native";
-import { supabase } from "../utils/supabase";
 import { validateVenueType, isBar as isBarHelper, getVenueKeySafe } from "../utils/venueHelpers";
-import { fetchLatestVibe } from "../utils/vibeHelpers";
+import { getLatestVibe, getRecentVibes } from "../services/vibeService";
 import { formatTimeAgo } from "../utils/timeHelpers";
 import { getDisplayValue, MISSING_DATA_PLACEHOLDER } from "../utils/displayHelpers";
 import { mapCoverPriceToUI, mapBarTierToUI, mapBarTierToSymbol, mapLegacyDrinksPriceToTier } from "../utils/priceMapping";
-
-// Helper functions
-
-async function fetchRecentVibes(venueKey, hours = 2) {
-  if (!venueKey) return [];
-
-  const since = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
-
-  const { data, error } = await supabase
-    .from("vibes")
-    .select("crowd, ratio, line, cover, drinks_price, drinks_price_tier, music, bar_type, created_at")
-    .eq("venue_id", venueKey)
-    .gte("created_at", since)
-    .order("created_at", { ascending: false })
-    .limit(20);
-
-  if (error) {
-    console.log("Error fetching recent vibes:", error.message);
-    return [];
-  }
-
-  return data || [];
-}
 
 function mapRatioToPercent(ratioLabel) {
   switch (ratioLabel) {
@@ -145,12 +121,12 @@ export default function VenueDetailsLovable({
         return;
       }
       const [latest, recent] = await Promise.all([
-        fetchLatestVibe(key, { 
+        getLatestVibe(key, { 
           showError: true, 
           retries: 2,
           selectFields: "id, crowd, ratio, line, cover, drinks_price, drinks_price_tier, music, bar_type, created_at, stay_duration, tags"
         }),
-        fetchRecentVibes(key, 2),
+        getRecentVibes(key, 2),
       ]);
       if (isMounted) {
         setLatestVibe(latest);
