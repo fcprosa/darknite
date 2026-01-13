@@ -42,13 +42,12 @@ function FilterChip({ label, isActive, onPress }) {
 }
 
 export default function ExploreScreen({ navigation, tabNavigation, onOpenVenue }) {
-  const { venues: allVenues, loadingVenues: loadingAllVenues } = useAppContext();
+  const { venues: allVenues, loadingVenues: loadingAllVenues, latestVibesByVenueId } = useAppContext();
   const [venues, setVenues] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedType, setSelectedType] = useState("Clubs");
   const [searchQuery, setSearchQuery] = useState("");
   const [ratios, setRatios] = useState({});
-  const [latestVibes, setLatestVibes] = useState({});
 
   const [activeFilters, setActiveFilters] = useState(() => {
     return selectedType === "Clubs"
@@ -110,26 +109,29 @@ export default function ExploreScreen({ navigation, tabNavigation, onOpenVenue }
       if (fetchedVenues.length === 0) {
         setVenues([]);
         setRatios({});
-        setLatestVibes({});
         setLoading(false);
         return;
       }
 
       // Fetch all vibes in parallel BEFORE setting state
-      const vibePromises = fetchedVenues.map(venue => 
-        getLatestVibe(getVenueKeySafe(venue))
-      );
+      const vibePromises = fetchedVenues.map(venue => {
+        const key = getVenueKeySafe(venue);
+        // Check context first, then fetch if not in context
+        const cachedVibe = latestVibesByVenueId[key];
+        if (cachedVibe) {
+          return Promise.resolve(cachedVibe);
+        }
+        return getLatestVibe(key);
+      });
       const vibeResults = await Promise.all(vibePromises);
 
       const nextRatios = {};
-      const nextVibes = {};
 
       vibeResults.forEach((vibe, index) => {
         if (vibe) {
           const key = getVenueKeySafe(fetchedVenues[index]);
-          if (key) {
-            nextVibes[key] = vibe;
-            if (vibe.ratio) nextRatios[key] = mapRatioToPercent(vibe.ratio);
+          if (key && vibe.ratio) {
+            nextRatios[key] = mapRatioToPercent(vibe.ratio);
           }
         }
       });
@@ -137,7 +139,6 @@ export default function ExploreScreen({ navigation, tabNavigation, onOpenVenue }
       // Set all state together at the end
       setVenues(fetchedVenues);
       setRatios(nextRatios);
-      setLatestVibes(nextVibes);
       setLoading(false);
     }
 
@@ -160,7 +161,7 @@ export default function ExploreScreen({ navigation, tabNavigation, onOpenVenue }
     return list.filter((venue) => {
       const key = getVenueKeySafe(venue);
       if (!key) return false; // Skip venues without valid IDs
-      const vibe = latestVibes[key];
+      const vibe = latestVibesByVenueId[key];
 
       // Search - works for both tabs
       if (searchQuery.trim()) {
@@ -261,7 +262,7 @@ export default function ExploreScreen({ navigation, tabNavigation, onOpenVenue }
     for (const venue of filteredVenues) {
       const key = getVenueKeySafe(venue);
       if (!key) continue; // Skip venues without valid IDs
-      const vibe = latestVibes[key];
+      const vibe = latestVibesByVenueId[key];
       const neighborhood = venue.neighborhood || "Unknown";
       
       if (!groups[neighborhood]) {
@@ -295,7 +296,7 @@ export default function ExploreScreen({ navigation, tabNavigation, onOpenVenue }
     const liveRatio = ratios[key];
     const guys = liveRatio?.guys ?? item.guys;
     const girls = liveRatio?.girls ?? item.girls;
-    const latestVibe = latestVibes[key] || null;
+    const latestVibe = latestVibesByVenueId[key] || null;
 
     return (
       <VenueCardLovable

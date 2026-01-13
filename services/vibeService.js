@@ -171,10 +171,12 @@ export async function getUserVibes(userId, limit = 10) {
  */
 export async function createVibe(vibeData) {
   try {
+    // Select the same fields that getLatestVibe returns for consistency
+    const defaultFields = "venue_id, crowd, ratio, line, cover, drinks_price, drinks_price_tier, music, bar_type, created_at";
     const { data, error } = await supabase
       .from("vibes")
       .insert([vibeData])
-      .select()
+      .select(defaultFields)
       .single();
 
     if (error) {

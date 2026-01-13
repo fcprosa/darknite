@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import * as Haptics from "expo-haptics";
 import { useAuth } from "../contexts/AuthContext";
+import { useAppContext } from "../contexts/AppContext";
 import { createVibe } from "../services/vibeService";
 import { validateVenueType, getVenueKey, getVenueKeySafe } from "../utils/venueHelpers";
 import { mapCoverPriceToDB, BAR_TIER_UI_LABELS, BAR_DRINKS_TIER_OPTIONS } from "../utils/priceMapping";
@@ -361,6 +362,7 @@ const BAR_TYPE_OPTIONS = ["cocktail", "sports", "dive", "wine", "speakeasy"];
 
 export default function PostVibeScreen({ venue, navigation: navigationProp, onBack, onSuccess, route }) {
   const { user, isAuthenticated, setShowAuthModal } = useAuth();
+  const { upsertLatestVibe } = useAppContext();
   const navigationHook = useNavigation();
   // Use prop navigation if available, otherwise fall back to hook
   const navigation = navigationProp || navigationHook;
@@ -787,6 +789,11 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
 
       // Success! Show toast and navigate
       console.log("Vibe saved:", data);
+      
+      // Update central latest vibes map immediately
+      if (data) {
+        upsertLatestVibe(data);
+      }
       
       // Show toast notification
       setToastMessage("Vibe posted ✅");

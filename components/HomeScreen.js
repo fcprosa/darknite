@@ -12,10 +12,11 @@ import * as Haptics from "expo-haptics";
 import VenueCardLovable from "./VenueCardLovable";
 import { useAuth } from "../contexts/AuthContext";
 import { useAppContext } from "../contexts/AppContext";
-import { getHotNowVibes } from "../services/vibeService";
+import { getHotNowVibes, getLatestVibe } from "../services/vibeService";
 import { getVenuesByIds } from "../services/venueService";
 import { getHotnessScore } from "../utils/scoreHelpers";
 import * as CONSTANTS from "../constants";
+import { getVenueKeySafe } from "../utils/venueHelpers";
 
 // Helper function: map ratio label to percentages
 function mapRatioToPercent(ratioLabel) {
@@ -34,32 +35,32 @@ function mapRatioToPercent(ratioLabel) {
 
 function HomeScreen({ navigation, tabNavigation, venues, onOpenVenue, onOpenSheet, refreshKey, selectedVenue, setSelectedVenue }) {
   const { setShowAuthModal, isAuthenticated } = useAuth();
+  const { latestVibesByVenueId } = useAppContext();
   const isLoggedIn = isAuthenticated;
   const [ratios, setRatios] = useState({}); // { [venueId]: { guys, girls } }
-  const [latestVibes, setLatestVibes] = useState({}); // { [venueId]: vibe }
   const [feedMode, setFeedMode] = useState("forYou"); // "forYou" | "hotNow"
   const [hotNowVenues, setHotNowVenues] = useState([]); // Venues with recent vibes
   const [hotNowLoading, setHotNowLoading] = useState(false);
 
+  // Fetch latest vibes on mount and when refreshKey changes, and merge with context
   useEffect(() => {
     let cancelled = false;
 
     async function loadRatios() {
       const nextRatios = {};
-      const nextVibes = {};
       for (const v of venues) {
-        const key = v.id || v.name;
-        const vibe = await getLatestVibe(key);
-        if (vibe) {
-          nextVibes[key] = vibe;
-          if (vibe.ratio) {
-            nextRatios[key] = mapRatioToPercent(vibe.ratio);
-          }
+        const key = getVenueKeySafe(v) || v.id || v.name;
+        // Check context first, then fetch if not in context
+        let vibe = latestVibesByVenueId[key];
+        if (!vibe) {
+          vibe = await getLatestVibe(key);
+        }
+        if (vibe && vibe.ratio) {
+          nextRatios[key] = mapRatioToPercent(vibe.ratio);
         }
       }
       if (!cancelled) {
         setRatios(nextRatios);
-        setLatestVibes(nextVibes);
       }
     }
 
@@ -68,7 +69,7 @@ function HomeScreen({ navigation, tabNavigation, venues, onOpenVenue, onOpenShee
     return () => {
       cancelled = true;
     };
-  }, [refreshKey, venues]);
+  }, [refreshKey, venues, latestVibesByVenueId]);
 
   // Load Hot Now venues (venues with vibes in last 12 hours)
   useEffect(() => {
@@ -182,10 +183,10 @@ function HomeScreen({ navigation, tabNavigation, venues, onOpenVenue, onOpenShee
     if (feedMode === "forYou") {
       // Sort by hotness score
       return [...baseVenues].sort((a, b) => {
-        const keyA = a.id || a.name;
-        const keyB = b.id || b.name;
-        const vibeA = latestVibes[keyA];
-        const vibeB = latestVibes[keyB];
+        const keyA = getVenueKeySafe(a) || a.id || a.name;
+        const keyB = getVenueKeySafe(b) || b.id || b.name;
+        const vibeA = latestVibesByVenueId[keyA];
+        const vibeB = latestVibesByVenueId[keyB];
         const scoreA = getHotnessScore(vibeA);
         const scoreB = getHotnessScore(vibeB);
         return scoreB - scoreA; // Descending order
@@ -210,10 +211,11 @@ function HomeScreen({ navigation, tabNavigation, venues, onOpenVenue, onOpenShee
       }
     }
     // Fallback to regular lookup
-    const key = venue.id || venue.name;
+    const key = getVenueKeySafe(venue) || venue.id || venue.name;
     const liveRatio = ratios[key];
+    const latestVibe = latestVibesByVenueId[key] || null;
     return {
-      latestVibe: latestVibes[key] || null,
+      latestVibe,
       guys: liveRatio?.guys ?? venue.guys,
       girls: liveRatio?.girls ?? venue.girls,
     };

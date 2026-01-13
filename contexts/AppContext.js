@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { getAllVenues } from "../services/venueService";
+import { getVenueKeySafe } from "../utils/venueHelpers";
 
 const AppContext = React.createContext(null);
 
@@ -8,6 +9,7 @@ export function AppProvider({ children }) {
   const [loadingVenues, setLoadingVenues] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
   const [guestMode, setGuestMode] = useState(false);
+  const [latestVibesByVenueId, setLatestVibesByVenueId] = useState({}); // { [venueId]: vibe }
 
   useEffect(() => {
     async function loadVenues() {
@@ -19,6 +21,20 @@ export function AppProvider({ children }) {
     loadVenues();
   }, []);
 
+  // Upsert latest vibe into the central map
+  const upsertLatestVibe = useCallback((vibe) => {
+    if (!vibe || !vibe.venue_id) {
+      console.warn("[AppContext] upsertLatestVibe called with invalid vibe:", vibe);
+      return;
+    }
+    
+    const venueKey = vibe.venue_id; // venue_id is already the venue ID
+    setLatestVibesByVenueId((prev) => ({
+      ...prev,
+      [venueKey]: vibe,
+    }));
+  }, []);
+
   return (
     <AppContext.Provider
       value={{
@@ -28,6 +44,8 @@ export function AppProvider({ children }) {
         setRefreshKey: () => setRefreshKey((prev) => prev + 1),
         guestMode,
         setGuestMode,
+        latestVibesByVenueId,
+        upsertLatestVibe,
       }}
     >
       {children}
