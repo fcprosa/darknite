@@ -158,12 +158,17 @@ export default function VenueDetailsLovable({
   const venueName = venue?.name || "Unknown Venue";
   const venueAddress = venue?.address || null;
   const venueCity = venue?.city || "New York";
-  const venueNeighborhood = venue?.neighborhood || "NYC";
+  const venueNeighborhood = venue?.neighborhood || null;
   
-  // Build address string for Maps: prefer address, fallback to neighborhood
+  // Build address string for Maps deep-link: prefer address, fallback to neighborhood
   const fullAddress = venueAddress
     ? `${venueName}, ${venueAddress}, ${venueCity}`
-    : `${venueName}, ${venueNeighborhood}, ${venueCity}`;
+    : `${venueName}, ${venueNeighborhood || "NYC"}, ${venueCity}`;
+  
+  // Build display address for Location section: address only, no venue name
+  const displayAddress = venueAddress
+    ? venueAddress
+    : `${venueNeighborhood || ""}${venueCity ? ", " + venueCity : ""}`.trim() || "Location not available";
 
   const hasVibe = !!latestVibe;
   const vibeCount = recentVibes.length;
@@ -270,7 +275,6 @@ export default function VenueDetailsLovable({
               })()}
             </View>
           </View>
-          <Text style={styles.venueAddress}>{fullAddress}</Text>
         </View>
 
         {/* Post Your Vibe Button */}
@@ -391,7 +395,7 @@ export default function VenueDetailsLovable({
         {/* Location Card */}
         <View style={styles.locationCard}>
           <Text style={styles.locationTitle}>Location</Text>
-          <Text style={styles.locationAddress}>{fullAddress}</Text>
+          <Text style={styles.locationAddress}>{displayAddress}</Text>
           <TouchableOpacity
             style={styles.mapsButton}
             onPress={() => openMaps(fullAddress)}
