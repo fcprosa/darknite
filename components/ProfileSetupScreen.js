@@ -97,23 +97,13 @@ export default function ProfileSetupScreen({ navigation, route }) {
       }
 
       try {
-        const { data, error } = await supabase
-          .from("user_profiles")
-          .select("username, preferred_scene, favorite_genres, favorite_neighborhoods")
-          .eq("id", user.id)
-          .maybeSingle();
-
-        if (error && error.code !== "PGRST116") {
-          console.error("[ProfileSetup] Error loading profile:", error);
+        const profile = await getUserProfile(user.id);
+        if (profile) {
+          setExistingUsername(profile.username || null);
+          setPreferredScene(profile.preferred_scene || null);
+          setFavoriteGenres(profile.favorite_genres || []);
+          setFavoriteNeighborhoods(profile.favorite_neighborhoods || []);
         }
-
-        if (data) {
-          setExistingUsername(data.username || null);
-          setPreferredScene(data.preferred_scene || null);
-          setFavoriteGenres(data.favorite_genres || []);
-          setFavoriteNeighborhoods(data.favorite_neighborhoods || []);
-        }
-        
         setLoading(false);
       } catch (e) {
         console.error("[ProfileSetup] Error:", e);
@@ -211,26 +201,13 @@ export default function ProfileSetupScreen({ navigation, route }) {
     let usernameToSave = existingUsername;
     if (!usernameToSave) {
       try {
-        const { data, error } = await supabase
-          .from("user_profiles")
-          .select("username")
-          .eq("id", user.id)
-          .maybeSingle();
-        
-        if (error) {
-          console.error("[ProfileSetup] Error fetching username:", error);
-          Alert.alert("Error", "Could not load your profile. Please try again.");
-          setSaving(false);
-          return;
-        }
-        
-        if (!data || !data.username) {
+        const profile = await getUserProfileUsername(user.id);
+        if (!profile || !profile.username) {
           Alert.alert("Error", "Your profile is incomplete. Please contact support.");
           setSaving(false);
           return;
         }
-        
-        usernameToSave = data.username;
+        usernameToSave = profile.username;
       } catch (e) {
         console.error("[ProfileSetup] Error fetching username:", e);
         Alert.alert("Error", "Could not save your profile. Please try again.");
@@ -242,18 +219,14 @@ export default function ProfileSetupScreen({ navigation, route }) {
     setSaving(true);
 
     try {
-      const { error } = await supabase
-        .from("user_profiles")
-        .upsert({
-          id: user.id,
-          username: usernameToSave, // Preserve existing username
-          preferred_scene: preferredScene || null,
-          favorite_genres: favoriteGenres.length > 0 ? favoriteGenres : null,
-          favorite_neighborhoods: favoriteNeighborhoods.length > 0 ? favoriteNeighborhoods : null,
-          updated_at: new Date().toISOString(),
-        }, {
-          onConflict: "id"
-        });
+      const { error } = await updateProfile({
+        id: user.id,
+        username: usernameToSave, // Preserve existing username
+        preferred_scene: preferredScene || null,
+        favorite_genres: favoriteGenres.length > 0 ? favoriteGenres : null,
+        favorite_neighborhoods: favoriteNeighborhoods.length > 0 ? favoriteNeighborhoods : null,
+        updated_at: new Date().toISOString(),
+      });
 
       if (error) {
         console.error("[ProfileSetup] Error saving profile:", error);
