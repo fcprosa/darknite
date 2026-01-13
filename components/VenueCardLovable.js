@@ -199,50 +199,57 @@ export default function VenueCardLovable({ venue, guys, girls, onPress, latestVi
           </View>
         </View>
 
-        {/* Compact Icon Row - Different for bars vs clubs */}
-        <View style={styles.iconRow}>
-          {isBar ? (
-            // Bar icons: bar_type, drinks_price, music, ratio (if exists)
-            <>
-              <View style={styles.iconItem}>
-                <Text style={styles.iconEmoji}>{barTypeEmoji}</Text>
-                <Text style={styles.iconText}>{barTypeLabel}</Text>
-              </View>
-              <View style={styles.iconItem}>
-                <Text style={styles.iconEmoji}>🍹</Text>
-                <Text style={styles.iconText}>{getDisplayValue(drinksPrice)}</Text>
-              </View>
-              <View style={styles.iconItem}>
-                <Text style={styles.iconEmoji}>{musicEmoji}</Text>
-                <Text style={styles.iconText} numberOfLines={1}>{getDisplayValue(musicText)}</Text>
-              </View>
-              {ratioText && ratioEmoji && (
+        {/* Conditional: Icon Row when hasVibe, No Vibes text when !hasVibe */}
+        {hasVibe ? (
+          <View style={styles.iconRow}>
+            {isBar ? (
+              // Bar icons: bar_type, drinks_price, music, ratio (if exists)
+              <>
                 <View style={styles.iconItem}>
-                  <Text style={styles.iconEmoji}>{ratioEmoji}</Text>
-                  <Text style={styles.iconText} numberOfLines={1}>{ratioText}</Text>
+                  <Text style={styles.iconEmoji}>{barTypeEmoji}</Text>
+                  <Text style={styles.iconText}>{barTypeLabel}</Text>
                 </View>
-              )}
-            </>
-          ) : (
-            // Club icons: line, cover, music
-            <>
-              <View style={styles.iconItem}>
-                <Text style={styles.iconEmoji}>⏱</Text>
-                <Text style={styles.iconText}>{lineText}</Text>
-              </View>
-              <View style={styles.iconItem}>
-                <Text style={styles.iconEmoji}>💵</Text>
-                <Text style={styles.iconText}>{coverText}</Text>
-              </View>
-              {musicText && (
+                <View style={styles.iconItem}>
+                  <Text style={styles.iconEmoji}>🍹</Text>
+                  <Text style={styles.iconText}>{getDisplayValue(drinksPrice)}</Text>
+                </View>
                 <View style={styles.iconItem}>
                   <Text style={styles.iconEmoji}>{musicEmoji}</Text>
-                  <Text style={styles.iconText} numberOfLines={1}>{musicText}</Text>
+                  <Text style={styles.iconText} numberOfLines={1}>{getDisplayValue(musicText)}</Text>
                 </View>
-              )}
-            </>
-          )}
-        </View>
+                {ratioText && ratioEmoji && (
+                  <View style={styles.iconItem}>
+                    <Text style={styles.iconEmoji}>{ratioEmoji}</Text>
+                    <Text style={styles.iconText} numberOfLines={1}>{ratioText}</Text>
+                  </View>
+                )}
+              </>
+            ) : (
+              // Club icons: line, cover, music
+              <>
+                <View style={styles.iconItem}>
+                  <Text style={styles.iconEmoji}>⏱</Text>
+                  <Text style={styles.iconText}>{lineText}</Text>
+                </View>
+                <View style={styles.iconItem}>
+                  <Text style={styles.iconEmoji}>💵</Text>
+                  <Text style={styles.iconText}>{coverText}</Text>
+                </View>
+                {musicText && (
+                  <View style={styles.iconItem}>
+                    <Text style={styles.iconEmoji}>{musicEmoji}</Text>
+                    <Text style={styles.iconText} numberOfLines={1}>{musicText}</Text>
+                  </View>
+                )}
+              </>
+            )}
+          </View>
+        ) : (
+          <View style={styles.noVibesContainer}>
+            <Text style={styles.noVibesText}>There are no vibes yet</Text>
+            <Text style={styles.noVibesSubtext}>Be the first one</Text>
+          </View>
+        )}
 
         {/* Thin Ratio Bar - Show based on getDisplayRatio helper */}
         {ratioInfo.show && (
