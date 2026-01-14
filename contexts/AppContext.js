@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { getAllVenues } from "../services/venueService";
+import { getLatestVibe } from "../services/vibeService";
 import { getVenueKeySafe } from "../utils/venueHelpers";
 
 const AppContext = React.createContext(null);
@@ -10,6 +11,28 @@ export function AppProvider({ children }) {
   const [refreshKey, setRefreshKey] = useState(0);
   const [guestMode, setGuestMode] = useState(false);
   const [latestVibesByVenueId, setLatestVibesByVenueId] = useState({}); // { [venueId]: vibe }
+  const [latestVibesLoaded, setLatestVibesLoaded] = useState(false);
+
+  // Refresh latest vibes for all venues
+  const refreshLatestVibes = useCallback(async () => {
+    if (venues.length === 0) {
+      return;
+    }
+
+    const vibesMap = {};
+    const vibePromises = venues.map(async (venue) => {
+      const key = getVenueKeySafe(venue);
+      if (key) {
+        const vibe = await getLatestVibe(key);
+        if (vibe) {
+          vibesMap[key] = vibe;
+        }
+      }
+    });
+    await Promise.all(vibePromises);
+    setLatestVibesByVenueId(vibesMap);
+    setLatestVibesLoaded(true);
+  }, [venues]);
 
   useEffect(() => {
     async function loadVenues() {
@@ -20,6 +43,13 @@ export function AppProvider({ children }) {
     }
     loadVenues();
   }, []);
+
+  // Refresh latest vibes after venues load
+  useEffect(() => {
+    if (venues.length > 0 && !latestVibesLoaded) {
+      refreshLatestVibes();
+    }
+  }, [venues, latestVibesLoaded, refreshLatestVibes]);
 
   // Upsert latest vibe into the central map
   const upsertLatestVibe = useCallback((vibe) => {
@@ -45,7 +75,9 @@ export function AppProvider({ children }) {
         guestMode,
         setGuestMode,
         latestVibesByVenueId,
+        latestVibesLoaded,
         upsertLatestVibe,
+        refreshLatestVibes,
       }}
     >
       {children}
