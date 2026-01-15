@@ -66,6 +66,122 @@ function getMusicEmoji(music) {
   return "🎵";
 }
 
+function getBarTypeEmoji(bt) {
+  if (!bt) return "";
+  switch (bt) {
+    case "cocktail": return "🍸";
+    case "sports": return "🏈";
+    case "dive": return "🍺";
+    case "wine": return "🍷";
+    case "speakeasy": return "🕵️";
+    default: return "";
+  }
+}
+
+function getBarTypeLabel(bt) {
+  if (!bt) return "";
+  return bt.charAt(0).toUpperCase() + bt.slice(1);
+}
+
+// Build header chips based on venue type and form state
+function buildHeaderChips({ venueType, formState }) {
+  const { crowdLevel, ratio, line, cover, drinksPrice, music, barType } = formState;
+  const isBar = venueType === "bar";
+  const chips = [];
+
+  if (isBar) {
+    // Bar: Bar Type, Crowd, Price, Music
+    chips.push({
+      key: "bar_type",
+      label: "Type",
+      emoji: barType ? getBarTypeEmoji(barType) : null,
+      valueLabel: barType ? getBarTypeLabel(barType) : null,
+      selected: !!barType,
+    });
+    chips.push({
+      key: "crowd",
+      label: "Crowd",
+      emoji: crowdLevel ? getCrowdEmoji(crowdLevel) : null,
+      valueLabel: crowdLevel || null,
+      selected: !!crowdLevel,
+    });
+    chips.push({
+      key: "price",
+      label: "Price",
+      emoji: drinksPrice ? "🍹" : null,
+      valueLabel: drinksPrice || null,
+      selected: !!drinksPrice,
+    });
+    chips.push({
+      key: "music",
+      label: "Music",
+      emoji: music ? getMusicEmoji(music) : null,
+      valueLabel: music || null,
+      selected: !!music,
+    });
+  } else {
+    // Club: Crowd, Ratio, Line, Price, Music
+    chips.push({
+      key: "crowd",
+      label: "Crowd",
+      emoji: crowdLevel ? getCrowdEmoji(crowdLevel) : null,
+      valueLabel: crowdLevel || null,
+      selected: !!crowdLevel,
+    });
+    chips.push({
+      key: "ratio",
+      label: "Ratio",
+      emoji: ratio ? getRatioEmoji(ratio) : null,
+      valueLabel: ratio || null,
+      selected: !!ratio,
+    });
+    chips.push({
+      key: "line",
+      label: "Line",
+      emoji: line ? getLineEmoji(line) : null,
+      valueLabel: line || null,
+      selected: !!line,
+    });
+    chips.push({
+      key: "price",
+      label: "Price",
+      emoji: cover ? getCoverEmoji(cover) : null,
+      valueLabel: cover || null,
+      selected: !!cover,
+    });
+    chips.push({
+      key: "music",
+      label: "Music",
+      emoji: music ? getMusicEmoji(music) : null,
+      valueLabel: music || null,
+      selected: !!music,
+    });
+  }
+
+  return chips;
+}
+
+// Reusable VibeChip component for header and summary
+const VibeChip = memo(function VibeChip({ chip, muted = false }) {
+  const { label, emoji, valueLabel, selected } = chip;
+  const displayLabel = selected && valueLabel ? valueLabel : label;
+  const displayEmoji = selected && emoji ? emoji : null;
+
+  return (
+    <View style={[styles.vibeChip, muted && !selected && styles.vibeChipMuted]}>
+      {displayEmoji && <Text style={styles.vibeChipEmoji}>{displayEmoji}</Text>}
+      <Text
+        style={[
+          styles.vibeChipText,
+          muted && !selected && styles.vibeChipTextMuted,
+        ]}
+      >
+        {displayLabel}
+      </Text>
+    </View>
+  );
+});
+
 const VibeSummary = memo(function VibeSummary({
   crowdLevel,
   ratio,
@@ -127,62 +243,52 @@ const VibeSummary = memo(function VibeSummary({
     outputRange: [0.3, 0.6],
   });
 
-  function getBarTypeEmoji(bt) {
-    if (!bt) return "";
-    switch (bt) {
-      case "cocktail": return "🍸";
-      case "sports": return "🏈";
-      case "dive": return "🍺";
-      case "wine": return "🍷";
-      case "speakeasy": return "🕵️";
-      default: return "";
-    }
-  }
-  
-  function getBarTypeLabel(bt) {
-    if (!bt) return "";
-    return bt.charAt(0).toUpperCase() + bt.slice(1);
-  }
-  
-  // Build summary fields based on isBar boolean (not barType presence)
-  const requiredFields = [];
-  
+  // Build summary chips using buildHeaderChips for required fields, then add optional extras
+  const requiredChips = buildHeaderChips({
+    venueType: isBar ? "bar" : "club",
+    formState: { crowdLevel, ratio, line, cover, drinksPrice, music, barType },
+  });
+
+  const allChips = [...requiredChips];
+
+  // Add optional extras
   if (isBar) {
-    // Bar summary: bar_type, crowd, drinks_price, music, (ratio if present), (bartender_vibe if present)
-    if (barType) {
-      requiredFields.push({
-        label: getBarTypeLabel(barType),
-        value: getBarTypeLabel(barType),
-        emoji: getBarTypeEmoji(barType),
+    if (ratio) {
+      allChips.push({
+        key: "ratio_extra",
+        label: "Ratio",
+        emoji: getRatioEmoji(ratio),
+        valueLabel: ratio,
+        selected: true,
       });
     }
-    requiredFields.push({ label: "Crowd", value: crowdLevel, emoji: getCrowdEmoji(crowdLevel) });
-    if (drinksPrice) {
-      requiredFields.push({ label: "Drinks", value: drinksPrice, emoji: "🍹" });
-    }
-    requiredFields.push({ label: "Music", value: music, emoji: getMusicEmoji(music) });
-    // Optional extras for bars
-    if (ratio) {
-      requiredFields.push({ label: "Ratio", value: ratio, emoji: getRatioEmoji(ratio) });
-    }
     if (bartenderVibe) {
-      requiredFields.push({ label: "Bartender", value: bartenderVibe, emoji: "👨‍🍳" });
+      allChips.push({
+        key: "bartender_extra",
+        label: "Bartender",
+        emoji: "👨‍🍳",
+        valueLabel: bartenderVibe,
+        selected: true,
+      });
     }
   } else {
-    // Club summary: crowd, ratio, line, cover, music, (stay_duration/tags if present)
-    requiredFields.push({ label: "Crowd", value: crowdLevel, emoji: getCrowdEmoji(crowdLevel) });
-    requiredFields.push({ label: "Ratio", value: ratio, emoji: getRatioEmoji(ratio) });
-    requiredFields.push({ label: "Line", value: line, emoji: getLineEmoji(line) });
-    if (cover) {
-      requiredFields.push({ label: "Cover", value: cover, emoji: getCoverEmoji(cover) });
-    }
-    requiredFields.push({ label: "Music", value: music, emoji: getMusicEmoji(music) });
-    // Optional extras for clubs (only show if currently shown)
     if (stayDuration) {
-      requiredFields.push({ label: "Stay", value: stayDuration, emoji: "⏱" });
+      allChips.push({
+        key: "stay_extra",
+        label: "Stay",
+        emoji: "⏱",
+        valueLabel: stayDuration,
+        selected: true,
+      });
     }
     if (selectedTags && selectedTags.length > 0) {
-      requiredFields.push({ label: "Tags", value: selectedTags.join(", "), emoji: "🏷" });
+      allChips.push({
+        key: "tags_extra",
+        label: "Tags",
+        emoji: "🏷",
+        valueLabel: selectedTags.join(", "),
+        selected: true,
+      });
     }
   }
 
@@ -200,22 +306,9 @@ const VibeSummary = memo(function VibeSummary({
       ]}
     >
       <View style={styles.vibeSummary}>
-        {requiredFields.map((field, index) => {
-          const hasValue = field.value !== null && field.value !== undefined;
-          return (
-            <View key={index} style={styles.summaryPill}>
-              <Text style={styles.summaryEmoji}>{field.emoji}</Text>
-              <Text
-                style={[
-                  styles.summaryText,
-                  !hasValue && styles.summaryTextPlaceholder,
-                ]}
-              >
-                {hasValue ? field.value : "?"}
-              </Text>
-            </View>
-          );
-        })}
+        {allChips.map((chip) => (
+          <VibeChip key={chip.key} chip={chip} />
+        ))}
       </View>
     </Animated.View>
   );
@@ -1262,6 +1355,17 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
             )}
             <View style={styles.headerTitleContainer}>
               <Text style={styles.headerTitle}>Post your vibe 🔥</Text>
+              {/* Header Chips */}
+              {venueType && (
+                <View style={styles.headerChipsContainer}>
+                  {buildHeaderChips({
+                    venueType,
+                    formState: { crowdLevel, ratio, line, cover, drinksPrice, music, barType },
+                  }).map((chip) => (
+                    <VibeChip key={chip.key} chip={chip} muted={true} />
+                  ))}
+                </View>
+              )}
             </View>
             <TouchableOpacity style={styles.closeButton} onPress={handleCancel}>
               <Text style={styles.closeButtonText}>✕</Text>
@@ -1408,6 +1512,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     textAlign: "center",
+    marginBottom: 4,
+  },
+  headerChipsContainer: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 6,
+    marginTop: 4,
   },
   progressContainer: {
     paddingHorizontal: 16,
@@ -1460,7 +1572,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 8,
   },
-  summaryPill: {
+  vibeChip: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "rgba(168,85,247,0.15)",
@@ -1470,18 +1582,22 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(168,85,247,0.3)",
   },
-  summaryEmoji: {
+  vibeChipMuted: {
+    backgroundColor: "transparent",
+    borderColor: "rgba(156,163,175,0.3)",
+  },
+  vibeChipEmoji: {
     fontSize: 14,
     marginRight: 4,
   },
-  summaryText: {
+  vibeChipText: {
     color: "#E5E7EB",
     fontSize: 11,
     fontWeight: "600",
   },
-  summaryTextPlaceholder: {
-    color: "rgba(156,163,175,0.5)",
-    fontWeight: "400",
+  vibeChipTextMuted: {
+    color: "rgba(156,163,175,0.7)",
+    fontWeight: "500",
   },
   contentWrapper: {
     flex: 1,
