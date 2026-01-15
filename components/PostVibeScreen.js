@@ -1391,23 +1391,25 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
             </View>
           )}
 
-          {/* Vibe Summary - Prominent on final step */}
-          <VibeSummary
-            crowdLevel={crowdLevel}
-            ratio={ratio}
-            line={line}
-            cover={cover}
-            drinksPrice={drinksPrice}
-            music={music}
-            barType={barType}
-            bartenderVibe={bartenderVibe}
-            stayDuration={stayDuration}
-            selectedTags={selectedTags}
-            isFinalStep={isOnFinalStep}
-            isFormValid={isFormValid}
-            isBar={isBar}
-            animations={animations}
-          />
+          {/* Vibe Summary - Only show on final step */}
+          {isOnFinalStep && (
+            <VibeSummary
+              crowdLevel={crowdLevel}
+              ratio={ratio}
+              line={line}
+              cover={cover}
+              drinksPrice={drinksPrice}
+              music={music}
+              barType={barType}
+              bartenderVibe={bartenderVibe}
+              stayDuration={stayDuration}
+              selectedTags={selectedTags}
+              isFinalStep={isOnFinalStep}
+              isFormValid={isFormValid}
+              isBar={isBar}
+              animations={animations}
+            />
+          )}
 
           {/* Step Content */}
           <View style={styles.contentWrapper}>
@@ -1523,7 +1525,7 @@ const styles = StyleSheet.create({
   },
   progressContainer: {
     paddingHorizontal: 16,
-    paddingTop: 8,
+    paddingTop: 4,
     paddingBottom: 8,
   },
   progressText: {
