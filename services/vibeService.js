@@ -221,12 +221,13 @@ export async function createVibe(vibeData) {
         };
       }
       
-      if (error.code === "23505" || error.message?.includes("Rate limit exceeded") || error.message?.includes("already posted")) {
-        // Rate limit violation
+      // Check for RATE_LIMIT_EXCEEDED error (60-minute rate limit)
+      if (error.message?.includes("RATE_LIMIT_EXCEEDED") || (error.code === "23505" && error.message?.includes("Rate limit exceeded"))) {
+        // Rate limit violation (60 minutes)
         return {
           data: null,
           error: error,
-          userMessage: "You've posted recently for this venue—try again in ~15 minutes."
+          userMessage: "You've posted recently for this venue — try again in ~60 minutes."
         };
       }
       
@@ -240,11 +241,11 @@ export async function createVibe(vibeData) {
     log.error("Exception creating vibe:", error);
     
     // Handle exceptions that might be RLS or rate-limit related
-    if (error.message?.includes("Rate limit exceeded") || error.message?.includes("already posted")) {
+    if (error.message?.includes("RATE_LIMIT_EXCEEDED") || error.message?.includes("Rate limit exceeded")) {
       return {
         data: null,
         error: error,
-        userMessage: "You've posted recently for this venue—try again in ~15 minutes."
+        userMessage: "You've posted recently for this venue — try again in ~60 minutes."
       };
     }
     
