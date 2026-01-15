@@ -80,6 +80,147 @@ function getBarTypeLabel(barType) {
   }
 }
 
+function getRatioEmoji(ratio) {
+  if (!ratio) return null;
+  if (ratio.includes("guys")) return "👥";
+  if (ratio.includes("girls")) return "👭";
+  return "⚖️";
+}
+
+function getLineEmoji(line) {
+  if (!line) return null;
+  if (line.includes("No line")) return "✅";
+  if (line.includes("30+")) return "⏳";
+  return "⏱️";
+}
+
+function getCoverEmoji(cover) {
+  if (!cover) return null;
+  if (cover.includes("Free")) return "🆓";
+  if (cover.includes("$20+")) return "💎";
+  return "💰";
+}
+
+// Build summary chips from a vibe for display
+function buildVibeChips({ vibe, venueType }) {
+  if (!vibe) return [];
+  const isBar = venueType === "bar";
+  const chips = [];
+
+  if (isBar) {
+    // Bar: Bar Type, Crowd, Price, Music
+    if (vibe.bar_type) {
+      chips.push({
+        key: "bar_type",
+        label: getBarTypeLabel(vibe.bar_type),
+        emoji: getBarTypeEmoji(vibe.bar_type),
+        selected: true,
+      });
+    }
+    if (vibe.crowd) {
+      chips.push({
+        key: "crowd",
+        label: vibe.crowd,
+        emoji: getCrowdEmoji(vibe.crowd),
+        selected: true,
+      });
+    }
+    // Price for bars
+    if (vibe.drinks_price_tier || vibe.drinks_price) {
+      let priceLabel = null;
+      if (vibe.drinks_price_tier) {
+        priceLabel = mapBarTierToUI(vibe.drinks_price_tier);
+      } else if (vibe.drinks_price) {
+        const tier = mapLegacyDrinksPriceToTier(vibe.drinks_price);
+        priceLabel = tier ? mapBarTierToUI(tier) : null;
+      }
+      if (priceLabel) {
+        chips.push({
+          key: "price",
+          label: priceLabel,
+          emoji: "🍹",
+          selected: true,
+        });
+      }
+    }
+    if (vibe.music) {
+      chips.push({
+        key: "music",
+        label: vibe.music,
+        emoji: getMusicEmoji(vibe.music),
+        selected: true,
+      });
+    }
+  } else {
+    // Club: Crowd, Ratio, Line, Price, Music
+    if (vibe.crowd) {
+      chips.push({
+        key: "crowd",
+        label: vibe.crowd,
+        emoji: getCrowdEmoji(vibe.crowd),
+        selected: true,
+      });
+    }
+    if (vibe.ratio) {
+      chips.push({
+        key: "ratio",
+        label: vibe.ratio,
+        emoji: getRatioEmoji(vibe.ratio),
+        selected: true,
+      });
+    }
+    if (vibe.line) {
+      chips.push({
+        key: "line",
+        label: vibe.line,
+        emoji: getLineEmoji(vibe.line),
+        selected: true,
+      });
+    }
+    if (vibe.cover) {
+      const coverLabel = mapCoverPriceToUI(vibe.cover);
+      if (coverLabel) {
+        chips.push({
+          key: "price",
+          label: coverLabel,
+          emoji: getCoverEmoji(coverLabel),
+          selected: true,
+        });
+      }
+    }
+    if (vibe.music) {
+      chips.push({
+        key: "music",
+        label: vibe.music,
+        emoji: getMusicEmoji(vibe.music),
+        selected: true,
+      });
+    }
+  }
+
+  return chips;
+}
+
+// Reusable VibeChip component (same as PostVibeScreen)
+const VibeChip = React.memo(function VibeChip({ chip, muted = false }) {
+  const { label, emoji, selected } = chip;
+  const displayEmoji = selected && emoji ? emoji : null;
+
+  return (
+    <View style={[styles.vibeChip, muted && !selected && styles.vibeChipMuted]}>
+      {displayEmoji && <Text style={styles.vibeChipEmoji}>{displayEmoji}</Text>}
+      <Text
+        style={[
+          styles.vibeChipText,
+          muted && !selected && styles.vibeChipTextMuted,
+        ]}
+      >
+        {label}
+      </Text>
+    </View>
+  );
+});
+
 
 function openMaps(address) {
   const encodedAddress = encodeURIComponent(address);
@@ -296,99 +437,54 @@ export default function VenueDetailsLovable({
             </View>
           ) : (
             <>
-              <View style={styles.rightNowSummaryRow}>
-                <Text style={styles.rightNowSummaryText}>
-                  {crowdText} • {ratioText}{musicText ? ` • ${musicEmoji} ${musicText}` : ""}{barType ? ` • ${barTypeEmoji} ${barTypeLabel}` : ""}
-                </Text>
+              {/* Summary Chips */}
+              <View style={styles.rightNowChipsContainer}>
+                {buildVibeChips({ vibe: latestVibe, venueType }).map((chip) => (
+                  <VibeChip key={chip.key} chip={chip} />
+                ))}
               </View>
-              <View style={styles.rightNowRow}>
-                <View style={styles.rightNowItem}>
-                  <Text style={styles.rightNowEmoji}>{crowdEmoji}</Text>
-                  <View>
-                    <Text style={styles.rightNowLabel}>Crowd</Text>
-                    <Text style={styles.rightNowValue}>{crowdText}</Text>
-                  </View>
-                </View>
-                <View style={styles.rightNowItem}>
-                  <View>
-                    <Text style={styles.rightNowLabel}>Ratio</Text>
-                    <Text style={styles.rightNowValue}>{ratioText}</Text>
-                  </View>
-                </View>
-              </View>
-              <View style={styles.rightNowRow}>
-                {!isBar && (
-                  <View style={styles.rightNowItem}>
-                    <View>
-                      <Text style={styles.rightNowLabel}>Line</Text>
-                      <Text style={styles.rightNowValue}>{lineText}</Text>
-                    </View>
-                  </View>
-                )}
-                <View style={styles.rightNowItem}>
-                  <View>
-                    <Text style={styles.rightNowLabel}>{isBar ? "Drinks" : "Cover"}</Text>
-                    <Text style={styles.rightNowValue}>{isBar ? drinksPriceText : coverText}</Text>
-                  </View>
-                </View>
-              </View>
-              {musicText && (
-                <View style={styles.rightNowRow}>
-                  <View style={styles.rightNowItem}>
-                    <Text style={styles.rightNowEmoji}>{musicEmoji}</Text>
-                    <View>
-                      <Text style={styles.rightNowLabel}>Music</Text>
-                      <Text style={styles.rightNowValue}>{musicText}</Text>
-                    </View>
-                  </View>
-                </View>
-              )}
-              <View style={styles.rightNowFooter}>
-                <Text style={styles.footerText}>
-                  {vibeCount} vibe{vibeCount === 1 ? "" : "s"} in last 2h
-                </Text>
-                <Text style={styles.footerText}>
-                  {formatTimeAgo(latestVibe.created_at)}
-                </Text>
-              </View>
-              {((!isBar && (lineText === MISSING_DATA_PLACEHOLDER || coverText === MISSING_DATA_PLACEHOLDER)) || 
-                (isBar && drinksPriceText === MISSING_DATA_PLACEHOLDER) ||
-                crowdText === MISSING_DATA_PLACEHOLDER || 
-                ratioText === MISSING_DATA_PLACEHOLDER) && (
-                <Text style={styles.helperText}>
-                  {MISSING_DATA_PLACEHOLDER} indicates no recent data from users
-                </Text>
-              )}
+              {/* Metadata Line */}
+              <Text style={styles.rightNowMetadata}>
+                Updated {formatTimeAgo(latestVibe.created_at)} • {vibeCount} vibe{vibeCount === 1 ? "" : "s"} in last 2h
+              </Text>
             </>
           )}
         </View>
 
         {/* Recent Updates */}
-        {!loading && recentVibes.length > 0 && (
+        {!loading && (
           <>
             <Text style={styles.sectionTitle}>Recent updates</Text>
-            {recentVibes.slice(0, 10).map((vibe, index) => {
-              const vibeMusicEmoji = vibe.music ? getMusicEmoji(vibe.music) : "";
-              const vibeMusicText = vibe.music ? ` • ${vibeMusicEmoji} ${vibe.music}` : "";
-              const vibeBarTypeEmoji = vibe.bar_type ? getBarTypeEmoji(vibe.bar_type) : "";
-              const vibeBarTypeLabel = vibe.bar_type ? getBarTypeLabel(vibe.bar_type) : "";
-              const vibeBarTypeText = vibe.bar_type ? ` • ${vibeBarTypeEmoji} ${vibeBarTypeLabel}` : "";
-              return (
-                <View key={index} style={styles.recentUpdateRow}>
-                  <Text style={styles.recentUpdateEmoji}>
-                    {getCrowdEmoji(vibe.crowd)}
-                  </Text>
-                  <View style={styles.recentUpdateContent}>
-                    <Text style={styles.recentUpdateText}>
-                      {vibe.crowd} • {vibe.ratio}{vibeMusicText}{vibeBarTypeText}
-                    </Text>
-                    <Text style={styles.recentUpdateTime}>
-                      {formatTimeAgo(vibe.created_at)}
-                    </Text>
-                  </View>
-                </View>
-              );
-            })}
+            {recentVibes.length > 0 ? (
+              recentVibes.slice(0, 10).map((vibe, index) => {
+                const vibeChips = buildVibeChips({ vibe, venueType });
+                const summaryText = vibeChips.map(c => `${c.emoji} ${c.label}`).join(" • ");
+                return (
+                  <TouchableOpacity
+                    key={index}
+                    style={styles.recentUpdateCard}
+                    onPress={() => {
+                      // Navigate to venue details (already on this screen, could scroll or highlight)
+                      // For now, just keep it tappable for future enhancement
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.recentUpdateContent}>
+                      <Text style={styles.recentUpdateText} numberOfLines={2}>
+                        {summaryText || `${getCrowdEmoji(vibe.crowd)} ${vibe.crowd}`}
+                      </Text>
+                      <Text style={styles.recentUpdateTime}>
+                        {formatTimeAgo(vibe.created_at)}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })
+            ) : (
+              <View style={styles.recentUpdateEmptyState}>
+                <Text style={styles.mutedText}>No recent updates yet.</Text>
+              </View>
+            )}
           </>
         )}
 
@@ -539,62 +635,47 @@ const styles = StyleSheet.create({
     backgroundColor: "#0B0625",
     marginHorizontal: 16,
     borderRadius: 16,
-    padding: 20,
+    padding: 16,
     borderWidth: 1,
     borderColor: "rgba(124,58,237,0.4)",
   },
-  rightNowSummaryRow: {
-    marginBottom: 16,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(124,58,237,0.2)",
-  },
-  rightNowSummaryText: {
-    color: "#E5E7EB",
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  rightNowRow: {
+  rightNowChipsContainer: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 20,
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 12,
   },
-  rightNowItem: {
-    flex: 1,
+  rightNowMetadata: {
+    color: "#9CA3AF",
+    fontSize: 12,
+    marginTop: 4,
+  },
+  vibeChip: {
     flexDirection: "row",
     alignItems: "center",
+    backgroundColor: "rgba(168,85,247,0.15)",
+    borderRadius: 12,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderWidth: 1,
+    borderColor: "rgba(168,85,247,0.3)",
   },
-  rightNowEmoji: {
-    fontSize: 32,
-    marginRight: 12,
+  vibeChipMuted: {
+    backgroundColor: "transparent",
+    borderColor: "rgba(156,163,175,0.3)",
   },
-  rightNowLabel: {
-    color: "#9CA3AF",
-    fontSize: 12,
-    marginBottom: 4,
+  vibeChipEmoji: {
+    fontSize: 14,
+    marginRight: 4,
   },
-  rightNowValue: {
+  vibeChipText: {
     color: "#E5E7EB",
-    fontSize: 16,
+    fontSize: 11,
     fontWeight: "600",
   },
-  rightNowFooter: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: "rgba(124,58,237,0.2)",
-  },
-  footerText: {
-    color: "#9CA3AF",
-    fontSize: 12,
-  },
-  helperText: {
-    color: "#6B7280",
-    fontSize: 11,
-    fontStyle: "italic",
-    marginTop: 12,
-    textAlign: "center",
+  vibeChipTextMuted: {
+    color: "rgba(156,163,175,0.7)",
+    fontWeight: "500",
   },
   emptyState: {
     paddingVertical: 24,
@@ -611,9 +692,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 4,
   },
-  recentUpdateRow: {
-    flexDirection: "row",
-    alignItems: "center",
+  recentUpdateCard: {
     backgroundColor: "#0B0625",
     marginHorizontal: 16,
     marginBottom: 8,
@@ -622,10 +701,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(124,58,237,0.2)",
   },
-  recentUpdateEmoji: {
-    fontSize: 24,
-    marginRight: 12,
-  },
   recentUpdateContent: {
     flex: 1,
   },
@@ -633,11 +708,21 @@ const styles = StyleSheet.create({
     color: "#E5E7EB",
     fontSize: 14,
     fontWeight: "500",
-    marginBottom: 2,
+    marginBottom: 4,
+    lineHeight: 20,
   },
   recentUpdateTime: {
     color: "#9CA3AF",
     fontSize: 12,
+  },
+  recentUpdateEmptyState: {
+    backgroundColor: "#0B0625",
+    marginHorizontal: 16,
+    borderRadius: 12,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: "rgba(124,58,237,0.2)",
+    alignItems: "center",
   },
   locationCard: {
     backgroundColor: "#0B0625",
