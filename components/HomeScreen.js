@@ -12,7 +12,7 @@ import * as Haptics from "expo-haptics";
 import VenueCardLovable from "./VenueCardLovable";
 import { useAuth } from "../contexts/AuthContext";
 import { useAppContext } from "../contexts/AppContext";
-import { getHotNowVibes, getLatestVibe } from "../services/vibeService";
+import { getRecentVibes, getLatestVibe } from "../services/vibeService";
 import { getVenuesByIds } from "../services/venueService";
 import { getHotnessScore } from "../utils/scoreHelpers";
 import * as CONSTANTS from "../constants";
@@ -35,7 +35,7 @@ function mapRatioToPercent(ratioLabel) {
 
 function HomeScreen({ navigation, tabNavigation, venues, onOpenVenue, onOpenSheet, refreshKey, selectedVenue, setSelectedVenue }) {
   const { setShowAuthModal, isAuthenticated } = useAuth();
-  const { latestVibesByVenueId } = useAppContext();
+  const { latestVibesByVenueId, upsertLatestVibe } = useAppContext();
   const isLoggedIn = isAuthenticated;
   const [ratios, setRatios] = useState({}); // { [venueId]: { guys, girls } }
   const [feedMode, setFeedMode] = useState("forYou"); // "forYou" | "hotNow"
@@ -71,7 +71,7 @@ function HomeScreen({ navigation, tabNavigation, venues, onOpenVenue, onOpenShee
     };
   }, [refreshKey, venues, latestVibesByVenueId]);
 
-  // Load Hot Now venues (venues with vibes in last 12 hours)
+  // Load Hot Now venues (venues with vibes in last 30 minutes)
   useEffect(() => {
     if (feedMode !== "hotNow") return;
 
@@ -80,24 +80,8 @@ function HomeScreen({ navigation, tabNavigation, venues, onOpenVenue, onOpenShee
     async function loadHotNow() {
       setHotNowLoading(true);
       try {
-        // Query vibes from last 12 hours
-        const hoursAgo = 12; // Configurable
-        const since = new Date(Date.now() - hoursAgo * 60 * 60 * 1000).toISOString();
-
-        const { data: vibesData, error: vibesError } = await supabase
-          .from("vibes")
-          .select("venue_id, crowd, ratio, line, cover, drinks_price, music, bar_type, created_at")
-          .gte("created_at", since)
-          .order("created_at", { ascending: false });
-
-        if (vibesError) {
-          console.error("[Home] Error fetching hot now vibes:", vibesError.message);
-          if (!cancelled) {
-            setHotNowVenues([]);
-            setHotNowLoading(false);
-          }
-          return;
-        }
+        // Fetch vibes from last 30 minutes
+        const vibesData = await getRecentVibes({ minutes: 30, limit: 100 });
 
         if (!vibesData || vibesData.length === 0) {
           if (!cancelled) {
@@ -107,25 +91,46 @@ function HomeScreen({ navigation, tabNavigation, venues, onOpenVenue, onOpenShee
           return;
         }
 
-        // Dedupe by venue_id - keep first occurrence (latest)
+        // Build ordered unique venueIds from vibes (keep first occurrence = latest)
         const vibeMap = new Map();
+        const venueIds = [];
         for (const vibe of vibesData) {
           if (!vibeMap.has(vibe.venue_id)) {
             vibeMap.set(vibe.venue_id, vibe);
+            venueIds.push(vibe.venue_id);
           }
         }
 
-        const venueIds = Array.from(vibeMap.keys());
+        // Sync with latestVibesByVenueId context: upsert each vibe if it's newest for that venue
+        for (const vibe of vibesData) {
+          const venueKey = vibe.venue_id;
+          const existingVibe = latestVibesByVenueId[venueKey];
+          if (!existingVibe || new Date(vibe.created_at) > new Date(existingVibe.created_at)) {
+            upsertLatestVibe(vibe);
+          }
+        }
 
-        // Fetch venue rows for those venue_ids
-        const { data: venuesData, error: venuesError } = await supabase
-          .from("venues")
-          .select("id, name, neighborhood, default_guys, default_girls, venue_type")
-          .in("id", venueIds);
+        // Fetch venues for those venue_ids
+        const venuesData = await getVenuesByIds(venueIds);
 
+        if (!venuesData || venuesData.length === 0) {
+          if (!cancelled) {
+            setHotNowVenues([]);
+            setHotNowLoading(false);
+          }
+          return;
+        }
+
+        // Create a map of venue by id for quick lookup
+        const venueMap = new Map(venuesData.map(v => [v.id, v]));
+
+        // Sort venues to match venueIds order (maintain vibe recency order)
+        const sortedVenues = venueIds
+          .map(id => venueMap.get(id))
+          .filter(Boolean);
 
         // Join in-memory: create list with venue + latestVibe + guys/girls
-        const hotNowList = (venuesData || []).map((venue) => {
+        const hotNowList = sortedVenues.map((venue) => {
           const vibe = vibeMap.get(venue.id);
           const ratio = vibe?.ratio ? mapRatioToPercent(vibe.ratio) : null;
           return {
@@ -135,20 +140,6 @@ function HomeScreen({ navigation, tabNavigation, venues, onOpenVenue, onOpenShee
             girls: ratio?.girls ?? venue.default_girls ?? 50,
             created_at: vibe?.created_at || null,
           };
-        });
-
-        // Sort by created_at desc (most recent first), tie-break by crowd score
-        hotNowList.sort((a, b) => {
-          if (!a.created_at && !b.created_at) return 0;
-          if (!a.created_at) return 1;
-          if (!b.created_at) return -1;
-          const timeDiff = new Date(b.created_at) - new Date(a.created_at);
-          if (timeDiff !== 0) return timeDiff;
-          // Tie-break by crowd score
-          const crowdScores = { Dead: 1, Chill: 2, Fun: 3, Packed: 4, Chaos: 5 };
-          const scoreA = crowdScores[a.latestVibe?.crowd] || 0;
-          const scoreB = crowdScores[b.latestVibe?.crowd] || 0;
-          return scoreB - scoreA;
         });
 
         if (!cancelled) {
@@ -166,10 +157,18 @@ function HomeScreen({ navigation, tabNavigation, venues, onOpenVenue, onOpenShee
 
     loadHotNow();
 
+    // Periodic refresh every 60 seconds while Hot Now is active
+    const intervalId = setInterval(() => {
+      if (feedMode === "hotNow" && !cancelled) {
+        loadHotNow();
+      }
+    }, 60000);
+
     return () => {
       cancelled = true;
+      clearInterval(intervalId);
     };
-  }, [feedMode, refreshKey]);
+  }, [feedMode, refreshKey, latestVibesByVenueId, upsertLatestVibe]);
 
   // Sort venues by hotness score for "For You" feed
   const getSortedVenues = () => {
@@ -306,7 +305,7 @@ function HomeScreen({ navigation, tabNavigation, venues, onOpenVenue, onOpenShee
           ListEmptyComponent={
             feedMode === "hotNow" ? (
               <View style={styles.emptyContainer}>
-                <Text style={styles.emptyText}>No venues with recent vibes</Text>
+                <Text style={styles.emptyText}>Nothing hot right now</Text>
               </View>
             ) : null
           }

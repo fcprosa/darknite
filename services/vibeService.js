@@ -75,12 +75,41 @@ export async function getLatestVibe(venueKey, options = {}) {
 }
 
 /**
- * Fetch recent vibes for a venue (last N hours)
- * @param {string} venueKey - Venue ID
- * @param {number} hours - Number of hours to look back (default: 2)
- * @returns {Promise<Array>} Array of recent vibe data
+ * Fetch recent vibes - supports two modes:
+ * 1. For a specific venue: getRecentVibes(venueKey, hours)
+ * 2. From all venues (Hot Now): getRecentVibes({ minutes, limit })
+ * @param {string|Object} venueKeyOrOptions - Venue ID (string) or options object
+ * @param {number} hours - Number of hours to look back (if venueKey is string, default: 2)
+ * @returns {Promise<Array>} Array of vibe data
  */
-export async function getRecentVibes(venueKey, hours = 2) {
+export async function getRecentVibes(venueKeyOrOptions, hours = 2) {
+  // If first param is an object, use new Hot Now mode
+  if (typeof venueKeyOrOptions === 'object' && venueKeyOrOptions !== null && !Array.isArray(venueKeyOrOptions)) {
+    const { minutes = 30, limit = 100 } = venueKeyOrOptions;
+    const since = new Date(Date.now() - minutes * 60 * 1000).toISOString();
+
+    try {
+      const { data, error } = await supabase
+        .from("vibes")
+        .select("venue_id, crowd, ratio, line, cover, drinks_price, drinks_price_tier, music, bar_type, created_at")
+        .gte("created_at", since)
+        .order("created_at", { ascending: false })
+        .limit(limit);
+
+      if (error) {
+        log.error("Error fetching recent vibes:", error.message);
+        return [];
+      }
+
+      return data || [];
+    } catch (error) {
+      log.error("Exception fetching recent vibes:", error);
+      return [];
+    }
+  }
+
+  // Original mode: fetch for a specific venue
+  const venueKey = venueKeyOrOptions;
   if (!venueKey) return [];
 
   const since = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
