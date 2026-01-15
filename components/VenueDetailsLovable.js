@@ -314,20 +314,18 @@ export default function VenueDetailsLovable({
   const hasVibe = !!latestVibe;
   const vibeCount = recentVibes.length;
 
-  const crowdEmoji = hasVibe ? getCrowdEmoji(latestVibe.crowd) : "❓";
-  const crowdText = getDisplayValue(hasVibe ? latestVibe.crowd : null, MISSING_DATA_PLACEHOLDER);
-  const lineText = getDisplayValue(hasVibe ? latestVibe.line : null, MISSING_DATA_PLACEHOLDER);
-  const musicText = hasVibe ? latestVibe.music : null;
-  const musicEmoji = musicText ? getMusicEmoji(musicText) : "🎵";
-  const barType = hasVibe ? latestVibe.bar_type : null;
-  const barTypeEmoji = barType ? getBarTypeEmoji(barType) : "";
-  const barTypeLabel = barType ? getBarTypeLabel(barType) : "";
+  // Calculate freshness status dot color
+  const getStatusDotColor = (createdAt) => {
+    if (!createdAt) return "#9CA3AF"; // gray
+    const now = new Date();
+    const then = new Date(createdAt);
+    const diffMins = Math.floor((now - then) / 60000);
+    if (diffMins < 15) return "#10B981"; // green
+    if (diffMins < 60) return "#F59E0B"; // yellow
+    return "#9CA3AF"; // gray
+  };
 
-  const ratioPercent = hasVibe
-    ? mapRatioToPercent(latestVibe.ratio)
-    : { guys: 50, girls: 50 };
-
-  const ratioText = getDisplayValue(hasVibe ? latestVibe.ratio : null, MISSING_DATA_PLACEHOLDER);
+  const statusDotColor = hasVibe ? getStatusDotColor(latestVibe.created_at) : "#9CA3AF";
 
   // Validate venue type
   const venueTypeValidation = validateVenueType(venue?.venue_type);
@@ -437,16 +435,21 @@ export default function VenueDetailsLovable({
             </View>
           ) : (
             <>
+              {/* Latest Vibe Label */}
+              <Text style={styles.latestVibeLabel}>Latest vibe</Text>
               {/* Summary Chips */}
               <View style={styles.rightNowChipsContainer}>
                 {buildVibeChips({ vibe: latestVibe, venueType }).map((chip) => (
                   <VibeChip key={chip.key} chip={chip} />
                 ))}
               </View>
-              {/* Metadata Line */}
-              <Text style={styles.rightNowMetadata}>
-                Updated {formatTimeAgo(latestVibe.created_at)} • {vibeCount} vibe{vibeCount === 1 ? "" : "s"} in last 2h
-              </Text>
+              {/* Metadata Line with Status Dot */}
+              <View style={styles.rightNowMetadataRow}>
+                <View style={[styles.statusDot, { backgroundColor: statusDotColor }]} />
+                <Text style={styles.rightNowMetadata}>
+                  Updated {formatTimeAgo(latestVibe.created_at)} • {vibeCount} vibe{vibeCount === 1 ? "" : "s"} in last 2h
+                </Text>
+              </View>
             </>
           )}
         </View>
@@ -457,24 +460,52 @@ export default function VenueDetailsLovable({
             <Text style={styles.sectionTitle}>Recent updates</Text>
             {recentVibes.length > 0 ? (
               recentVibes.slice(0, 10).map((vibe, index) => {
-                const vibeChips = buildVibeChips({ vibe, venueType });
-                const summaryText = vibeChips.map(c => `${c.emoji} ${c.label}`).join(" • ");
+                // Build 2-3 key highlights (crowd + 1-2 other fields)
+                const highlights = [];
+                
+                // Always include crowd
+                if (vibe.crowd) {
+                  highlights.push(`${getCrowdEmoji(vibe.crowd)} ${vibe.crowd}`);
+                }
+                
+                // Add line if available (most actionable for clubs)
+                if (vibe.line && !isBar) {
+                  highlights.push(`${getLineEmoji(vibe.line)} ${vibe.line}`);
+                }
+                
+                // Add music if we don't have 2 highlights yet
+                if (highlights.length < 2 && vibe.music) {
+                  highlights.push(`${getMusicEmoji(vibe.music)} ${vibe.music}`);
+                }
+                
+                // Add ratio if we still need more and it's available
+                if (highlights.length < 2 && vibe.ratio) {
+                  highlights.push(`${getRatioEmoji(vibe.ratio)} ${vibe.ratio}`);
+                }
+                
+                // For bars, add price if available
+                if (isBar && highlights.length < 2 && (vibe.drinks_price_tier || vibe.drinks_price)) {
+                  highlights.push("🍹 Price");
+                }
+                
+                const summaryText = highlights.join(" • ");
+                
                 return (
                   <TouchableOpacity
                     key={index}
                     style={styles.recentUpdateCard}
                     onPress={() => {
-                      // Navigate to venue details (already on this screen, could scroll or highlight)
-                      // For now, just keep it tappable for future enhancement
+                      // Scroll to this vibe or show details
+                      // For now, keep tappable for future enhancement
                     }}
                     activeOpacity={0.7}
                   >
                     <View style={styles.recentUpdateContent}>
                       <Text style={styles.recentUpdateText} numberOfLines={2}>
-                        {summaryText || `${getCrowdEmoji(vibe.crowd)} ${vibe.crowd}`}
+                        {summaryText || `${getCrowdEmoji(vibe.crowd)} ${vibe.crowd || "Unknown"}`}
                       </Text>
                       <Text style={styles.recentUpdateTime}>
-                        {formatTimeAgo(vibe.created_at)}
+                        {formatTimeAgo(vibe.created_at, true)}
                       </Text>
                     </View>
                   </TouchableOpacity>
@@ -635,20 +666,37 @@ const styles = StyleSheet.create({
     backgroundColor: "#0B0625",
     marginHorizontal: 16,
     borderRadius: 16,
-    padding: 16,
+    padding: 20,
     borderWidth: 1,
     borderColor: "rgba(124,58,237,0.4)",
+  },
+  latestVibeLabel: {
+    color: "#9CA3AF",
+    fontSize: 12,
+    fontWeight: "500",
+    marginBottom: 12,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
   },
   rightNowChipsContainer: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
-    marginBottom: 12,
+    marginBottom: 16,
+  },
+  rightNowMetadataRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   rightNowMetadata: {
     color: "#9CA3AF",
     fontSize: 12,
-    marginTop: 4,
   },
   vibeChip: {
     flexDirection: "row",
