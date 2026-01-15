@@ -777,7 +777,12 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
       const { data, error, userMessage } = await createVibe(vibeData);
 
       if (error) {
-        console.error("Error inserting vibe:", error);
+        // Check for RATE_LIMIT_EXCEEDED - treat as expected validation (no console.error)
+        const isRateLimitError = error.message?.includes("RATE_LIMIT_EXCEEDED") || error.message?.includes("Rate limit exceeded");
+        
+        if (!isRateLimitError) {
+          console.error("Error inserting vibe:", error);
+        }
         
         // Show user-friendly message if available, otherwise generic error
         const message = userMessage || "Could not post vibe. Try again.";
@@ -814,8 +819,18 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
       }, 1600); // Slightly longer than toast duration
       
     } catch (e) {
-      console.error("Error:", e);
-      Alert.alert("Error", "Something went wrong.");
+      // Check for RATE_LIMIT_EXCEEDED - treat as expected validation (no console.error)
+      const isRateLimitError = e.message?.includes("RATE_LIMIT_EXCEEDED") || e.message?.includes("Rate limit exceeded");
+      
+      if (!isRateLimitError) {
+        console.error("Error:", e);
+      }
+      
+      // Show appropriate message
+      const message = isRateLimitError 
+        ? "You've posted recently for this venue — try again in ~60 minutes."
+        : "Something went wrong.";
+      Alert.alert("Error", message);
       hasSubmittedRef.current = false;
       setSubmitting(false);
     }

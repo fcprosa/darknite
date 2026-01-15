@@ -209,6 +209,20 @@ export async function createVibe(vibeData) {
       .single();
 
     if (error) {
+      // Check for RATE_LIMIT_EXCEEDED error (60-minute rate limit) - treat as expected validation
+      const isRateLimitError = error.message?.includes("RATE_LIMIT_EXCEEDED") || (error.code === "23505" && error.message?.includes("Rate limit exceeded"));
+      
+      if (isRateLimitError) {
+        // Rate limit violation (60 minutes) - log as info, not error
+        log.info("Rate limit exceeded for vibe creation:", { venue_id: vibeData.venue_id });
+        return {
+          data: null,
+          error: error,
+          userMessage: "You've posted recently for this venue — try again in ~60 minutes."
+        };
+      }
+      
+      // Other errors - log as error
       log.error("Error creating vibe:", error);
       
       // Handle RLS and rate-limit errors with user-friendly messages
@@ -221,16 +235,6 @@ export async function createVibe(vibeData) {
         };
       }
       
-      // Check for RATE_LIMIT_EXCEEDED error (60-minute rate limit)
-      if (error.message?.includes("RATE_LIMIT_EXCEEDED") || (error.code === "23505" && error.message?.includes("Rate limit exceeded"))) {
-        // Rate limit violation (60 minutes)
-        return {
-          data: null,
-          error: error,
-          userMessage: "You've posted recently for this venue — try again in ~60 minutes."
-        };
-      }
-      
       // Generic error
       return { data: null, error: error, userMessage: null };
     }
@@ -238,10 +242,12 @@ export async function createVibe(vibeData) {
     log.log("Vibe created successfully");
     return { data, error: null, userMessage: null };
   } catch (error) {
-    log.error("Exception creating vibe:", error);
+    // Check for RATE_LIMIT_EXCEEDED error - treat as expected validation
+    const isRateLimitError = error.message?.includes("RATE_LIMIT_EXCEEDED") || error.message?.includes("Rate limit exceeded");
     
-    // Handle exceptions that might be RLS or rate-limit related
-    if (error.message?.includes("RATE_LIMIT_EXCEEDED") || error.message?.includes("Rate limit exceeded")) {
+    if (isRateLimitError) {
+      // Rate limit violation - log as info, not error
+      log.info("Rate limit exceeded (exception) for vibe creation");
       return {
         data: null,
         error: error,
@@ -249,6 +255,8 @@ export async function createVibe(vibeData) {
       };
     }
     
+    // Other exceptions - log as error
+    log.error("Exception creating vibe:", error);
     return { data: null, error: error, userMessage: null };
   }
 }
