@@ -1,10 +1,20 @@
 /**
  * Logging utility with production-ready error tracking
  * - Development: Logs to console with full details
- * - Production: Logs errors to console (can be extended with Sentry/LogRocket)
+ * - Production: Logs errors to console and sends to Sentry (if configured)
  */
 
 const __DEV__ = process.env.NODE_ENV !== 'production';
+
+// Lazy-load Sentry to avoid initialization issues
+let Sentry = null;
+try {
+  // Try to import Sentry if it's available (initialized in App.js)
+  Sentry = require('@sentry/react-native');
+} catch (e) {
+  // Sentry not installed or not available - that's okay
+  Sentry = null;
+}
 
 class Logger {
   constructor() {
@@ -59,12 +69,32 @@ class Logger {
     const formatted = this.formatError(...args);
     console.error(...formatted);
 
-    // In production, could send to error tracking service
-    // Example: Sentry.captureException(...)
-    if (this.errorTrackingEnabled && typeof window !== 'undefined') {
-      // Placeholder for error tracking service integration
-      // TODO: Integrate Sentry or similar service
-      // Sentry.captureException(formatted[0], { extra: formatted.slice(1) });
+    // Send to Sentry if available and enabled
+    if (Sentry && this.errorTrackingEnabled) {
+      try {
+        const firstArg = args[0];
+        
+        // If first argument is an Error object, capture it directly
+        if (firstArg instanceof Error) {
+          Sentry.captureException(firstArg, {
+            extra: formatted.slice(1),
+            tags: { source: 'logger' },
+          });
+        } else {
+          // Otherwise, create an error from the message
+          const errorMessage = typeof firstArg === 'string' 
+            ? firstArg 
+            : JSON.stringify(firstArg);
+          Sentry.captureMessage(errorMessage, {
+            level: 'error',
+            extra: formatted.slice(1),
+            tags: { source: 'logger' },
+          });
+        }
+      } catch (sentryError) {
+        // Don't let Sentry errors break the app
+        console.warn('[Logger] Failed to send error to Sentry:', sentryError);
+      }
     }
   }
 
