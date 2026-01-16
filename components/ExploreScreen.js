@@ -4,25 +4,10 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import VenueCardLovable from "./VenueCardLovable";
 import { mapCoverPriceToUI, BAR_TIER_UI_LABELS, mapBarTierToUI, mapLegacyDrinksPriceToTier } from "../utils/priceMapping";
-import { getLatestVibe } from "../services/vibeService";
 import { formatTimeAgo } from "../utils/timeHelpers";
 import { getVenueKeySafe } from "../utils/venueHelpers";
 import { useAppContext } from "../contexts/AppContext";
 import { getVenuesByType } from "../services/venueService";
-
-
-function mapRatioToPercent(ratioLabel) {
-  switch (ratioLabel) {
-    case "Mostly guys":
-      return { guys: 70, girls: 30 };
-    case "Balanced":
-      return { guys: 50, girls: 50 };
-    case "Mostly girls":
-      return { guys: 30, girls: 70 };
-    default:
-      return { guys: 50, girls: 50 };
-  }
-}
 
 function FilterChip({ label, isActive, onPress }) {
   return (
@@ -47,7 +32,6 @@ export default function ExploreScreen({ navigation, tabNavigation, onOpenVenue }
   const [loading, setLoading] = useState(true);
   const [selectedType, setSelectedType] = useState("Clubs");
   const [searchQuery, setSearchQuery] = useState("");
-  const [ratios, setRatios] = useState({});
 
   const [activeFilters, setActiveFilters] = useState(() => {
     return selectedType === "Clubs"
@@ -108,37 +92,12 @@ export default function ExploreScreen({ navigation, tabNavigation, onOpenVenue }
 
       if (fetchedVenues.length === 0) {
         setVenues([]);
-        setRatios({});
         setLoading(false);
         return;
       }
 
-      // Fetch all vibes in parallel BEFORE setting state
-      const vibePromises = fetchedVenues.map(venue => {
-        const key = getVenueKeySafe(venue);
-        // Check context first, then fetch if not in context
-        const cachedVibe = latestVibesByVenueId[key];
-        if (cachedVibe) {
-          return Promise.resolve(cachedVibe);
-        }
-        return getLatestVibe(key);
-      });
-      const vibeResults = await Promise.all(vibePromises);
-
-      const nextRatios = {};
-
-      vibeResults.forEach((vibe, index) => {
-        if (vibe) {
-          const key = getVenueKeySafe(fetchedVenues[index]);
-          if (key && vibe.ratio) {
-            nextRatios[key] = mapRatioToPercent(vibe.ratio);
-          }
-        }
-      });
-
-      // Set all state together at the end
+      // Set venues - vibes will be loaded via AppContext's refreshLatestVibes (batch fetch)
       setVenues(fetchedVenues);
-      setRatios(nextRatios);
       setLoading(false);
     }
 
@@ -293,16 +252,11 @@ export default function ExploreScreen({ navigation, tabNavigation, onOpenVenue }
   const renderVenueCard = (item) => {
     const key = getVenueKeySafe(item);
     if (!key) return null; // Skip venues without valid IDs
-    const liveRatio = ratios[key];
-    const guys = liveRatio?.guys ?? item.guys;
-    const girls = liveRatio?.girls ?? item.girls;
-    const latestVibe = latestVibesByVenueId[key] || null;
+    const latestVibe = latestVibesByVenueId?.[key] ?? null;
 
     return (
       <VenueCardLovable
         venue={item}
-        guys={guys}
-        girls={girls}
         onPress={() => onOpenVenue(item)}
         latestVibe={latestVibe}
       />
