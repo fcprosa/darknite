@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   View,
   Text,
@@ -140,8 +140,8 @@ function HomeScreen({ navigation, tabNavigation, venues, onOpenVenue, onOpenShee
     };
   }, [feedMode, refreshKey, latestVibesByVenueId, upsertLatestVibe]);
 
-  // Sort venues by hotness score for "For You" feed
-  const getSortedVenues = () => {
+  // Sort venues by hotness score for "For You" feed (memoized for performance)
+  const sortedVenues = useMemo(() => {
     if (feedMode === "hotNow") {
       // Return hot now venues (already sorted)
       return hotNowVenues.map((item) => item.venue);
@@ -163,9 +163,7 @@ function HomeScreen({ navigation, tabNavigation, venues, onOpenVenue, onOpenShee
     }
     
     return baseVenues;
-  };
-
-  const sortedVenues = getSortedVenues();
+  }, [venues, feedMode, hotNowVenues, latestVibesByVenueId, isLoggedIn]);
   
   // Get latest vibe for a venue (works for both feed modes)
   const getVenueData = (venue) => {
