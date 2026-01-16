@@ -41,7 +41,7 @@ export function isClub(venueType) {
  * Get a reliable unique key for a venue
  * @param {Object} venue - Venue object with id property
  * @throws {Error} if venue doesn't have an ID
- * @returns {string} Venue ID
+ * @returns {string} Venue ID (normalized to string)
  */
 export function getVenueKey(venue) {
   if (!venue) {
@@ -53,13 +53,15 @@ export function getVenueKey(venue) {
     throw new Error(`Venue "${venue.name || 'unknown'}" is missing required ID field`);
   }
   
-  return venue.id;
+  // Normalize to string for consistency (handles both string and number IDs)
+  return String(venue.id);
 }
 
 /**
  * Safe version that returns null instead of throwing
+ * Normalizes venue ID to string for consistency
  * @param {Object} venue - Venue object with id property
- * @returns {string|null} Venue ID or null if invalid
+ * @returns {string|null} Venue ID (normalized to string) or null if invalid
  */
 export function getVenueKeySafe(venue) {
   try {

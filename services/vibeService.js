@@ -166,7 +166,8 @@ export async function getHotNowVibes(hoursAgo = CONSTANTS.HOT_NOW_HOURS, limit =
 
 /**
  * Fetch latest vibes for multiple venues in a single batch request
- * @param {Array<string>} venueIds - Array of venue IDs
+ * Handles string or number venue IDs, deduplicates, and chunks large requests
+ * @param {Array<string|number>} venueIds - Array of venue IDs (string or number)
  * @returns {Promise<Object>} Object mapping venue_id to latest vibe { [venueId]: vibe }
  */
 export async function getLatestVibesBatch(venueIds) {
@@ -174,50 +175,72 @@ export async function getLatestVibesBatch(venueIds) {
     return {};
   }
 
-  // Filter out invalid venue IDs
-  const validVenueIds = venueIds.filter(id => id && typeof id === 'string');
+  // Filter and normalize venue IDs (handle both string and number)
+  const validVenueIds = venueIds
+    .filter(id => id !== null && id !== undefined && id !== '')
+    .map(id => String(id)); // Normalize to strings for consistency
+
   if (validVenueIds.length === 0) {
     return {};
   }
 
-  const since = new Date(Date.now() - CONSTANTS.VIBE_RECENCY_HOURS * 60 * 60 * 1000).toISOString();
+  // Deduplicate IDs
+  const uniqueIds = [...new Set(validVenueIds)];
+
+  // Use 12 hours for filtering recent vibes (as specified)
+  const hoursAgo = 12;
+  const since = new Date(Date.now() - hoursAgo * 60 * 60 * 1000).toISOString();
   
   // Default fields used by most components
   const fields = "venue_id, crowd, ratio, line, cover, drinks_price, drinks_price_tier, music, bar_type, created_at";
 
+  // Chunk large requests (300 IDs per batch to avoid URL length limits)
+  const CHUNK_SIZE = 300;
+  const chunks = [];
+  for (let i = 0; i < uniqueIds.length; i += CHUNK_SIZE) {
+    chunks.push(uniqueIds.slice(i, i + CHUNK_SIZE));
+  }
+
+  const allVibesMap = {};
+
   try {
-    const { data, error } = await supabase
-      .from("vibes")
-      .select(fields)
-      .in("venue_id", validVenueIds)
-      .gte("created_at", since)
-      .order("created_at", { ascending: false });
+    // Process each chunk
+    for (const chunk of chunks) {
+      const { data, error } = await supabase
+        .from("vibes")
+        .select(fields)
+        .in("venue_id", chunk)
+        .gte("created_at", since)
+        .order("created_at", { ascending: false });
 
-    if (error) {
-      log.error("Error fetching latest vibes batch:", error.message);
-      return {};
-    }
-
-    if (!data || data.length === 0) {
-      return {};
-    }
-
-    // Process in-memory: keep only the newest vibe per venue_id
-    const vibesMap = {};
-    for (const vibe of data) {
-      const venueId = vibe.venue_id;
-      if (!vibesMap[venueId]) {
-        // First vibe for this venue (already sorted by created_at desc)
-        vibesMap[venueId] = vibe;
+      if (error) {
+        log.error("Error fetching latest vibes batch chunk:", error.message);
+        // Continue with other chunks even if one fails
+        continue;
       }
-      // If we already have a vibe for this venue, skip (we only want the latest)
+
+      if (!data || data.length === 0) {
+        continue;
+      }
+
+      // Process in-memory: keep only the newest vibe per venue_id
+      // Data is already sorted by created_at DESC, so first occurrence is newest
+      for (const vibe of data) {
+        const venueId = String(vibe.venue_id); // Normalize to string
+        if (!allVibesMap[venueId]) {
+          // First vibe for this venue (already sorted by created_at desc)
+          allVibesMap[venueId] = vibe;
+        }
+        // If we already have a vibe for this venue, skip (we only want the latest)
+      }
     }
 
-    log.log(`getLatestVibesBatch: fetched ${Object.keys(vibesMap).length} latest vibes from ${validVenueIds.length} venues`);
-    return vibesMap;
+    log.log(`getLatestVibesBatch: fetched ${Object.keys(allVibesMap).length} latest vibes from ${uniqueIds.length} venues`);
+    return allVibesMap;
   } catch (error) {
     log.error("Exception fetching latest vibes batch:", error);
-    return {};
+    // Return whatever we've collected so far, don't crash UI
+    return allVibesMap;
   }
 }
 
