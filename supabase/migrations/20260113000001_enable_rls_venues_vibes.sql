@@ -41,10 +41,10 @@ CREATE POLICY "vibes_select_public" ON vibes
   FOR SELECT
   USING (true);
 
--- Allow INSERT only for authenticated users
+-- Allow INSERT only for authenticated users, and only for their own user_id
 CREATE POLICY "vibes_insert_authenticated" ON vibes
   FOR INSERT
-  WITH CHECK (auth.uid() IS NOT NULL);
+  WITH CHECK (auth.uid() = user_id);
 
 -- Explicitly deny UPDATE (optional, but makes intent clear)
 -- Since we don't create an UPDATE policy, UPDATE is denied by default
