@@ -1,13 +1,51 @@
 /**
- * Development-only logging utility
- * In production, logs are disabled to improve performance
+ * Logging utility with production-ready error tracking
+ * - Development: Logs to console with full details
+ * - Production: Logs errors to console (can be extended with Sentry/LogRocket)
  */
 
 const __DEV__ = process.env.NODE_ENV !== 'production';
 
 class Logger {
   constructor() {
-    this.enabled = __DEV__;
+    this.enabled = true; // Always enabled, but level varies by environment
+    this.errorTrackingEnabled = !__DEV__; // Enable error tracking in production
+  }
+
+  /**
+   * Sanitize sensitive data from error objects
+   */
+  sanitizeError(error) {
+    if (!error) return error;
+    
+    // Remove sensitive fields if error is an object
+    if (typeof error === 'object' && error !== null) {
+      const sanitized = { ...error };
+      // Remove potential PII/sensitive data
+      delete sanitized.password;
+      delete sanitized.email;
+      delete sanitized.token;
+      delete sanitized.secret;
+      return sanitized;
+    }
+    
+    return error;
+  }
+
+  /**
+   * Format error for logging/tracking
+   */
+  formatError(...args) {
+    return args.map(arg => {
+      if (arg instanceof Error) {
+        return {
+          message: arg.message,
+          stack: arg.stack,
+          name: arg.name,
+        };
+      }
+      return this.sanitizeError(arg);
+    });
   }
 
   log(...args) {
@@ -17,8 +55,16 @@ class Logger {
   }
 
   error(...args) {
-    if (this.enabled) {
-      console.error(...args);
+    // Always log errors, even in production
+    const formatted = this.formatError(...args);
+    console.error(...formatted);
+
+    // In production, could send to error tracking service
+    // Example: Sentry.captureException(...)
+    if (this.errorTrackingEnabled && typeof window !== 'undefined') {
+      // Placeholder for error tracking service integration
+      // TODO: Integrate Sentry or similar service
+      // Sentry.captureException(formatted[0], { extra: formatted.slice(1) });
     }
   }
 
@@ -35,7 +81,8 @@ class Logger {
   }
 
   debug(...args) {
-    if (this.enabled) {
+    // Only in development
+    if (__DEV__) {
       console.debug(...args);
     }
   }
