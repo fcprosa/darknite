@@ -6,15 +6,8 @@
 
 const __DEV__ = process.env.NODE_ENV !== 'production';
 
-// Lazy-load Sentry to avoid initialization issues
-let Sentry = null;
-try {
-  // Try to import Sentry if it's available (initialized in App.js)
-  Sentry = require('@sentry/react-native');
-} catch (e) {
-  // Sentry not installed or not available - that's okay
-  Sentry = null;
-}
+// Import Sentry instance (initialized in utils/sentry.js)
+import { getSentry } from './sentry';
 
 class Logger {
   constructor() {
@@ -70,6 +63,7 @@ class Logger {
     console.error(...formatted);
 
     // Send to Sentry if available and enabled
+    const Sentry = getSentry();
     if (Sentry && this.errorTrackingEnabled) {
       try {
         const firstArg = args[0];

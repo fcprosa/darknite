@@ -41,9 +41,14 @@ Add your Sentry DSN to your `.env` file:
 SENTRY_DSN=https://xxxxxxxxxxxxx@xxxxx.ingest.sentry.io/xxxxxx
 ```
 
-## Step 5: Initialize Sentry in Your App
+## Step 5: Code is Already Set Up!
 
-Sentry needs to be initialized as early as possible in your app. Update your `App.js` file (see implementation below).
+The Sentry integration code is already in place. When you install the package and add the DSN, it will automatically start working.
+
+**What's already configured:**
+- ✅ Sentry initialization in `utils/sentry.js`
+- ✅ Logger integration in `utils/logger.js`
+- ✅ Environment variable support in `app.config.js`
 
 ## Step 6: Update Logger to Use Sentry
 
