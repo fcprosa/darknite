@@ -1,10 +1,15 @@
 -- Rate limit trigger for vibes table
 -- Enforces: each authenticated user can post only one vibe per venue every 60 minutes
+-- This replaces the previous 15-minute rate limit
 
--- Drop trigger if it exists (for idempotency)
+-- Drop old 15-minute trigger and function if they exist (superseded by 60-min limit)
+DROP TRIGGER IF EXISTS vibe_rate_limit_trigger ON public.vibes;
+DROP FUNCTION IF EXISTS check_vibe_rate_limit() CASCADE;
+
+-- Drop 60-minute trigger if it exists (for idempotency)
 DROP TRIGGER IF EXISTS vibe_rate_limit_60min_trigger ON public.vibes;
 
--- Drop function if it exists (for idempotency)
+-- Drop 60-minute function if it exists (for idempotency)
 DROP FUNCTION IF EXISTS check_vibe_rate_limit_60min() CASCADE;
 
 -- Create function to check 60-minute rate limit
