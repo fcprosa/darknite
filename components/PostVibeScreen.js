@@ -864,8 +864,8 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
         vibeData.bartender_vibe = null;
       }
 
-      // Log final payload before insert (without secrets)
-      console.log("[PostVibe] Final payload:", JSON.stringify(vibeData, null, 2));
+      // Log basic info for debugging (no sensitive data)
+      console.log("[PostVibe] Submitting vibe for venue:", vibeData.venue_id);
 
       const { data, error, userMessage } = await createVibe(vibeData);
 

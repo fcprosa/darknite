@@ -29,7 +29,7 @@ export function AuthProvider({ children }) {
     // Get initial session (handles app restart/auth restoration)
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (mounted) {
-        console.log("[Auth] Initial session:", !!session, session?.user?.email);
+        console.log("[Auth] Initial session:", !!session);
         setSession(session);
         setUser(session?.user ?? null);
         setLoading(false);
@@ -41,7 +41,7 @@ export function AuthProvider({ children }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log("[Auth] State change:", event, !!session, session?.user?.email);
+      console.log("[Auth] State change:", event, !!session);
       
       if (!mounted) return;
 
@@ -179,11 +179,11 @@ export function AuthProvider({ children }) {
       if (error) throw error;
 
       // Debug: Log session immediately after sign in
-      console.log("[Auth] signIn result session:", !!data?.session, "user:", data?.user?.email);
+      console.log("[Auth] signIn result session:", !!data?.session);
       
       // Verify session was created
       const { data: sessionData } = await supabase.auth.getSession();
-      console.log("[Auth] getSession after signIn:", !!sessionData?.session, sessionData?.session?.user?.email);
+      console.log("[Auth] getSession after signIn:", !!sessionData?.session);
 
       return { data, error: null };
     } catch (error) {

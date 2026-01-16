@@ -46,9 +46,8 @@ CREATE POLICY "vibes_insert_authenticated" ON vibes
   FOR INSERT
   WITH CHECK (auth.uid() = user_id);
 
--- Explicitly deny UPDATE (optional, but makes intent clear)
--- Since we don't create an UPDATE policy, UPDATE is denied by default
-
--- Explicitly deny DELETE (optional, but makes intent clear)
--- Since we don't create a DELETE policy, DELETE is denied by default
+-- UPDATE and DELETE policies
+-- Note: No UPDATE or DELETE policies are created, which means these operations are denied by default (RLS default behavior)
+-- This ensures vibes are immutable once created - users cannot modify or delete their posted vibes
+-- If update/delete functionality is needed in the future, explicit policies should be created with appropriate authorization checks
 

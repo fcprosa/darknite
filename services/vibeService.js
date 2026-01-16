@@ -274,12 +274,95 @@ export async function getUserVibes(userId, limit = 10) {
 }
 
 /**
+ * Validate vibe data before insertion
+ * @param {Object} vibeData - Vibe data object to validate
+ * @returns {{ valid: boolean, error: string|null }} Validation result
+ */
+function validateVibeData(vibeData) {
+  if (!vibeData || typeof vibeData !== 'object') {
+    return { valid: false, error: 'Invalid vibe data' };
+  }
+
+  // Validate required fields
+  if (!vibeData.venue_id || typeof vibeData.venue_id !== 'string') {
+    return { valid: false, error: 'venue_id is required and must be a string' };
+  }
+
+  if (!vibeData.user_id || typeof vibeData.user_id !== 'string') {
+    return { valid: false, error: 'user_id is required and must be a string' };
+  }
+
+  // Validate enum fields if provided
+  const validCrowdValues = ['Dead', 'Chill', 'Fun', 'Packed', 'Chaos'];
+  if (vibeData.crowd && !validCrowdValues.includes(vibeData.crowd)) {
+    return { valid: false, error: 'Invalid crowd value' };
+  }
+
+  const validRatioValues = ['Mostly guys', 'Balanced', 'Mostly girls'];
+  if (vibeData.ratio && !validRatioValues.includes(vibeData.ratio)) {
+    return { valid: false, error: 'Invalid ratio value' };
+  }
+
+  const validLineValues = ['No line', 'Short', '30+ min'];
+  if (vibeData.line && !validLineValues.includes(vibeData.line)) {
+    return { valid: false, error: 'Invalid line value' };
+  }
+
+  const validCoverValues = ['Free', '< $10', '$10-20', '$20-30', '$30+'];
+  if (vibeData.cover && !validCoverValues.includes(vibeData.cover)) {
+    return { valid: false, error: 'Invalid cover value' };
+  }
+
+  const validMusicValues = ['Hip-Hop / R&B', 'Afrobeats', 'House / Techno', 'Reggaeton', 'Top Hits', 'Mixed'];
+  if (vibeData.music && !validMusicValues.includes(vibeData.music)) {
+    return { valid: false, error: 'Invalid music value' };
+  }
+
+  const validBarTypeValues = ['cocktail', 'sports', 'dive', 'wine', 'speakeasy'];
+  if (vibeData.bar_type && !validBarTypeValues.includes(vibeData.bar_type)) {
+    return { valid: false, error: 'Invalid bar_type value' };
+  }
+
+  const validDrinksPriceTierValues = ['cheap', 'normal', 'expensive', 'crazy'];
+  if (vibeData.drinks_price_tier && !validDrinksPriceTierValues.includes(vibeData.drinks_price_tier)) {
+    return { valid: false, error: 'Invalid drinks_price_tier value' };
+  }
+
+  // Validate string length limits (prevent extremely long strings)
+  const maxStringLength = 500;
+  const stringFields = ['comment', 'stay_duration'];
+  for (const field of stringFields) {
+    if (vibeData[field] && typeof vibeData[field] === 'string' && vibeData[field].length > maxStringLength) {
+      return { valid: false, error: `${field} exceeds maximum length` };
+    }
+  }
+
+  // Validate array fields
+  if (vibeData.tags && !Array.isArray(vibeData.tags)) {
+    return { valid: false, error: 'tags must be an array' };
+  }
+
+  return { valid: true, error: null };
+}
+
+/**
  * Create a new vibe
  * @param {Object} vibeData - Vibe data object
  * @returns {Promise<{data: Object|null, error: Error|null, userMessage: string|null}>} Result object
  */
 export async function createVibe(vibeData) {
   try {
+    // Validate input data before insertion
+    const validation = validateVibeData(vibeData);
+    if (!validation.valid) {
+      log.error("Vibe validation failed:", validation.error);
+      return {
+        data: null,
+        error: new Error(validation.error),
+        userMessage: "Invalid vibe data. Please try again."
+      };
+    }
+
     // Select the same fields that getLatestVibe returns for consistency
     const defaultFields = "venue_id, crowd, ratio, line, cover, drinks_price, drinks_price_tier, music, bar_type, created_at";
     const { data, error } = await supabase
