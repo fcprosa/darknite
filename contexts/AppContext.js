@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { getAllVenues } from "../services/venueService";
-import { getLatestVibe } from "../services/vibeService";
+import { getLatestVibesBatch } from "../services/vibeService";
 import { getVenueKeySafe } from "../utils/venueHelpers";
 
 const AppContext = React.createContext(null);
@@ -13,25 +13,33 @@ export function AppProvider({ children }) {
   const [latestVibesByVenueId, setLatestVibesByVenueId] = useState({}); // { [venueId]: vibe }
   const [latestVibesLoaded, setLatestVibesLoaded] = useState(false);
 
-  // Refresh latest vibes for all venues
+  // Refresh latest vibes for all venues (batch request to avoid N+1 problem)
   const refreshLatestVibes = useCallback(async () => {
     if (venues.length === 0) {
       return;
     }
 
-    const vibesMap = {};
-    const vibePromises = venues.map(async (venue) => {
-      const key = getVenueKeySafe(venue);
-      if (key) {
-        const vibe = await getLatestVibe(key);
-        if (vibe) {
-          vibesMap[key] = vibe;
-        }
+    try {
+      // Extract all valid venue IDs
+      const venueIds = venues
+        .map(venue => getVenueKeySafe(venue))
+        .filter(id => id !== null && id !== undefined);
+
+      if (venueIds.length === 0) {
+        setLatestVibesLoaded(true);
+        return;
       }
-    });
-    await Promise.all(vibePromises);
-    setLatestVibesByVenueId(vibesMap);
-    setLatestVibesLoaded(true);
+
+      // Fetch all latest vibes in a single batch request
+      const vibesMap = await getLatestVibesBatch(venueIds);
+      
+      setLatestVibesByVenueId(vibesMap);
+      setLatestVibesLoaded(true);
+    } catch (error) {
+      console.error("[AppContext] Error refreshing latest vibes:", error);
+      // Still set loaded to true to prevent infinite retries
+      setLatestVibesLoaded(true);
+    }
   }, [venues]);
 
   useEffect(() => {

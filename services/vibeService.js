@@ -165,6 +165,63 @@ export async function getHotNowVibes(hoursAgo = CONSTANTS.HOT_NOW_HOURS, limit =
 }
 
 /**
+ * Fetch latest vibes for multiple venues in a single batch request
+ * @param {Array<string>} venueIds - Array of venue IDs
+ * @returns {Promise<Object>} Object mapping venue_id to latest vibe { [venueId]: vibe }
+ */
+export async function getLatestVibesBatch(venueIds) {
+  if (!venueIds || !Array.isArray(venueIds) || venueIds.length === 0) {
+    return {};
+  }
+
+  // Filter out invalid venue IDs
+  const validVenueIds = venueIds.filter(id => id && typeof id === 'string');
+  if (validVenueIds.length === 0) {
+    return {};
+  }
+
+  const since = new Date(Date.now() - CONSTANTS.VIBE_RECENCY_HOURS * 60 * 60 * 1000).toISOString();
+  
+  // Default fields used by most components
+  const fields = "venue_id, crowd, ratio, line, cover, drinks_price, drinks_price_tier, music, bar_type, created_at";
+
+  try {
+    const { data, error } = await supabase
+      .from("vibes")
+      .select(fields)
+      .in("venue_id", validVenueIds)
+      .gte("created_at", since)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      log.error("Error fetching latest vibes batch:", error.message);
+      return {};
+    }
+
+    if (!data || data.length === 0) {
+      return {};
+    }
+
+    // Process in-memory: keep only the newest vibe per venue_id
+    const vibesMap = {};
+    for (const vibe of data) {
+      const venueId = vibe.venue_id;
+      if (!vibesMap[venueId]) {
+        // First vibe for this venue (already sorted by created_at desc)
+        vibesMap[venueId] = vibe;
+      }
+      // If we already have a vibe for this venue, skip (we only want the latest)
+    }
+
+    log.log(`getLatestVibesBatch: fetched ${Object.keys(vibesMap).length} latest vibes from ${validVenueIds.length} venues`);
+    return vibesMap;
+  } catch (error) {
+    log.error("Exception fetching latest vibes batch:", error);
+    return {};
+  }
+}
+
+/**
  * Fetch user's vibes
  * @param {string} userId - User ID
  * @param {number} limit - Max number of vibes to fetch (default: 10)
