@@ -38,10 +38,8 @@ export function initSentry() {
       beforeSend(event, hint) {
         // Filter out development-only errors if needed
         // You can customize this to filter specific errors
-        if (process.env.NODE_ENV === 'development' && !__DEV__) {
-          // Uncomment to disable Sentry in development completely
-          // return null;
-        }
+        // Uncomment the line below to disable Sentry in development completely
+        // if (process.env.NODE_ENV === 'development') return null;
         return event;
       },
       
