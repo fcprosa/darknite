@@ -28,7 +28,7 @@ export default function ExploreStackNavigator() {
       >
         <Stack.Screen name="ExploreList">
           {({ navigation }) => {
-            const tabNavigation = navigation.getParent();
+            const tabNavigation = navigation.getParent?.() || null;
             return (
               <ExploreScreen
                 navigation={navigation}
@@ -60,22 +60,18 @@ export default function ExploreStackNavigator() {
             useEffect(() => {
               if (!venue && venueIdFromParams && !fetchingVenue) {
                 setFetchingVenue(true);
-                supabase
-                  .from("venues")
-                  .select("id, name, neighborhood, default_guys, default_girls, venue_type")
-                  .eq("id", venueIdFromParams)
-                  .maybeSingle()
-                  .then(({ data, error }) => {
-                    if (!error && data) {
+                getVenueById(venueIdFromParams)
+                  .then((venueData) => {
+                    if (venueData) {
                       setFetchedVenue({
-                        id: data.id,
-                        name: data.name,
-                        neighborhood: data.neighborhood || "Unknown",
-                        guys: data.default_guys ?? 50,
-                        girls: data.default_girls ?? 50,
-                        venue_type: data.venue_type ? data.venue_type.trim().toLowerCase() : null,
+                        ...venueData,
+                        neighborhood: venueData.neighborhood || "Unknown",
                       });
                     }
+                    setFetchingVenue(false);
+                  })
+                  .catch((error) => {
+                    console.error("[ExploreStackNavigator] Error fetching venue:", error);
                     setFetchingVenue(false);
                   });
               }
