@@ -12,7 +12,7 @@ import * as Haptics from "expo-haptics";
 import VenueCardLovable from "./VenueCardLovable";
 import { useAuth } from "../contexts/AuthContext";
 import { useAppContext } from "../contexts/AppContext";
-import { getRecentVibes, getLatestVibe } from "../services/vibeService";
+import { getRecentVibes } from "../services/vibeService";
 import { getVenuesByIds } from "../services/venueService";
 import { getHotnessScore } from "../utils/scoreHelpers";
 import * as CONSTANTS from "../constants";
@@ -37,39 +37,9 @@ function HomeScreen({ navigation, tabNavigation, venues, onOpenVenue, onOpenShee
   const { setShowAuthModal, isAuthenticated } = useAuth();
   const { latestVibesByVenueId, upsertLatestVibe } = useAppContext();
   const isLoggedIn = isAuthenticated;
-  const [ratios, setRatios] = useState({}); // { [venueId]: { guys, girls } }
   const [feedMode, setFeedMode] = useState("forYou"); // "forYou" | "hotNow"
   const [hotNowVenues, setHotNowVenues] = useState([]); // Venues with recent vibes
   const [hotNowLoading, setHotNowLoading] = useState(false);
-
-  // Fetch latest vibes on mount and when refreshKey changes, and merge with context
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadRatios() {
-      const nextRatios = {};
-      for (const v of venues) {
-        const key = getVenueKeySafe(v) || v.id || v.name;
-        // Check context first, then fetch if not in context
-        let vibe = latestVibesByVenueId[key];
-        if (!vibe) {
-          vibe = await getLatestVibe(key);
-        }
-        if (vibe && vibe.ratio) {
-          nextRatios[key] = mapRatioToPercent(vibe.ratio);
-        }
-      }
-      if (!cancelled) {
-        setRatios(nextRatios);
-      }
-    }
-
-    loadRatios();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [refreshKey, venues, latestVibesByVenueId]);
 
   // Load Hot Now venues (venues with vibes in last 30 minutes)
   useEffect(() => {
@@ -197,26 +167,21 @@ function HomeScreen({ navigation, tabNavigation, venues, onOpenVenue, onOpenShee
 
   const sortedVenues = getSortedVenues();
   
-  // Get latest vibe and ratio for a venue (works for both feed modes)
+  // Get latest vibe for a venue (works for both feed modes)
   const getVenueData = (venue) => {
     if (feedMode === "hotNow") {
       const hotNowItem = hotNowVenues.find((item) => item.venue.id === venue.id);
       if (hotNowItem) {
         return {
           latestVibe: hotNowItem.latestVibe,
-          guys: hotNowItem.guys,
-          girls: hotNowItem.girls,
         };
       }
     }
-    // Fallback to regular lookup
+    // Use latestVibesByVenueId from context as single source of truth
     const key = getVenueKeySafe(venue) || venue.id || venue.name;
-    const liveRatio = ratios[key];
-    const latestVibe = latestVibesByVenueId[key] || null;
+    const latestVibe = latestVibesByVenueId?.[key] ?? null;
     return {
       latestVibe,
-      guys: liveRatio?.guys ?? venue.guys,
-      girls: liveRatio?.girls ?? venue.girls,
     };
   };
 
@@ -314,8 +279,6 @@ function HomeScreen({ navigation, tabNavigation, venues, onOpenVenue, onOpenShee
             return (
               <VenueCardLovable
                 venue={item}
-                guys={venueData.guys}
-                girls={venueData.girls}
                 onPress={() => onOpenVenue(item)}
                 latestVibe={venueData.latestVibe}
               />
