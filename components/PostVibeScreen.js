@@ -499,7 +499,13 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
         Alert.alert(
           "Missing Venue Information",
           "No venue information provided. Cannot proceed with posting a vibe.",
-          [{ text: "OK" }]
+          [{ text: "OK", onPress: () => {
+            if (onBack) {
+              onBack();
+            } else if (navigation?.canGoBack?.()) {
+              navigation.goBack();
+            }
+          }}]
         );
         setVenueType(null);
         setVenueTypeLoading(false);
@@ -514,7 +520,13 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
           Alert.alert(
             "Invalid Venue Type",
             `This venue has an invalid or missing type: ${validation.error}.\n\nPlease contact support or update the venue information before posting a vibe.`,
-            [{ text: "OK" }]
+            [{ text: "OK", onPress: () => {
+              if (onBack) {
+                onBack();
+              } else if (navigation?.canGoBack?.()) {
+                navigation.goBack();
+              }
+            }}]
           );
           setVenueType(null);
           setVenueTypeLoading(false);
@@ -528,7 +540,13 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
         const venueKey = getVenueKeySafe(venue);
         if (!venueKey) {
           console.error("[PostVibe] Venue missing ID:", venue);
-          Alert.alert("Error", "Invalid venue: missing ID. Please try again.");
+          Alert.alert("Error", "Invalid venue: missing ID. Please try again.", [{ text: "OK", onPress: () => {
+            if (onBack) {
+              onBack();
+            } else if (navigation?.canGoBack?.()) {
+              navigation.goBack();
+            }
+          }}]);
           setVenueTypeLoading(false);
           return;
         }
@@ -542,12 +560,18 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
             Alert.alert(
               "Invalid Venue Type",
               `This venue has an invalid or missing type in the database: ${validation.error}.\n\nPlease contact support or update the venue information before posting a vibe.`,
-              [{ text: "OK" }]
+              [{ text: "OK", onPress: () => {
+                if (onBack) {
+                  onBack();
+                } else if (navigation?.canGoBack?.()) {
+                  navigation.goBack();
+                }
+              }}]
             );
-            setVenueType(null);
-            setVenueTypeLoading(false);
-            return;
-          }
+          setVenueType(null);
+          setVenueTypeLoading(false);
+          return;
+        }
           console.log("[PostVibe] Fetched venue_type:", validation.type);
           setVenueType(validation.type);
           setVenueTypeLoading(false);
@@ -556,7 +580,13 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
           Alert.alert(
             "Venue Type Error",
             `Unable to determine this venue's type. Please try again or contact support.`,
-            [{ text: "OK" }]
+            [{ text: "OK", onPress: () => {
+              if (onBack) {
+                onBack();
+              } else if (navigation?.canGoBack?.()) {
+                navigation.goBack();
+              }
+            }}]
           );
           setVenueType(null);
           setVenueTypeLoading(false);
@@ -799,9 +829,12 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
     }
 
     const venueKey = getVenueKey(venue); // Throws if venue.id is missing
+    
+    // Set submission state to prevent double submission
     hasSubmittedRef.current = true;
+    setSubmitting(true);
+    
     try {
-      setSubmitting(true);
 
       const vibeData = {
         venue_id: venueKey,
@@ -871,6 +904,10 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
       const { data, error, userMessage } = await createVibe(vibeData);
 
       if (error) {
+        // Reset submission state immediately on error
+        hasSubmittedRef.current = false;
+        setSubmitting(false);
+        
         // Check for RATE_LIMIT_EXCEEDED - treat as expected validation (no console.error)
         const isRateLimitError = error.message?.includes("RATE_LIMIT_EXCEEDED") || error.message?.includes("Rate limit exceeded");
         
@@ -881,8 +918,6 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
         // Show user-friendly message if available, otherwise generic error
         const message = userMessage || "Could not post vibe. Try again.";
         Alert.alert("Error", message);
-        hasSubmittedRef.current = false;
-        setSubmitting(false);
         return;
       }
 
@@ -913,6 +948,10 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
       }, 1600); // Slightly longer than toast duration
       
     } catch (e) {
+      // Reset submission state immediately on error
+      hasSubmittedRef.current = false;
+      setSubmitting(false);
+      
       // Check for RATE_LIMIT_EXCEEDED - treat as expected validation (no console.error)
       const isRateLimitError = e.message?.includes("RATE_LIMIT_EXCEEDED") || e.message?.includes("Rate limit exceeded");
       
@@ -925,63 +964,39 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
         ? "You've posted recently for this venue — try again in ~60 minutes."
         : "Something went wrong.";
       Alert.alert("Error", message);
-      hasSubmittedRef.current = false;
-      setSubmitting(false);
     }
   };
 
   const navigateAfterSuccess = () => {
+    // Use onBack callback if available (preferred - closes the sheet/modal)
+    if (onBack) {
+      onBack();
+      return;
+    }
+
+    // Fallback: Try to go back
+    if (navigation?.canGoBack?.()) {
+      navigation.goBack();
+      return;
+    }
+
+    // Last resort: Navigate to VenueDetails or Home
     try {
-      // First, try to navigate to VenueDetails for this venue
-      if (venue?.id) {
-        try {
-          if (navigation?.navigate) {
-            navigation.navigate("VenueDetails", {
-              venue: venue,
-              venueId: venue.id,
-            });
-            return;
-          }
-        } catch (navError) {
-          console.warn("[PostVibe] Could not navigate to VenueDetails, trying fallback:", navError);
-        }
-      }
-
-      // Fallback: Try to go back
-      if (navigation?.canGoBack?.()) {
-        navigation.goBack();
-        return;
-      }
-
-      // Last resort: Navigate to Home
-      try {
+      if (venue?.id && navigation?.navigate) {
+        navigation.navigate("VenueDetails", {
+          venue: venue,
+          venueId: venue.id,
+        });
+      } else {
         const tabNav = navigation?.getParent?.();
         if (tabNav?.navigate) {
           tabNav.navigate("HomeTab");
-          return;
+        } else if (navigation?.navigate) {
+          navigation.navigate("HomeList");
         }
-      } catch (e) {
-        console.warn("[PostVibe] Could not get tab navigation:", e);
-      }
-
-      // Final fallback: Try direct navigate to HomeList
-      if (navigation?.navigate) {
-        navigation.navigate("HomeList");
-        return;
-      }
-
-      // If all else fails, use onBack callback
-      if (onBack) {
-        onBack();
-      } else {
-        console.error("[PostVibe] All navigation methods failed");
       }
     } catch (error) {
       console.error("[PostVibe] Navigation error:", error);
-      // Use onBack as absolute last resort
-      if (onBack) {
-        onBack();
-      }
     }
   };
 
