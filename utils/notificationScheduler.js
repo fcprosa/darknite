@@ -1,7 +1,11 @@
 import * as Notifications from "expo-notifications";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const STORAGE_KEY = "darknite_reminder_ids";
+const STORAGE_KEY_PREFIX = "reminder_notification_ids";
+
+function getStorageKey(userId) {
+  return `${STORAGE_KEY_PREFIX}_${userId}`;
+}
 
 // Configure notification behavior
 Notifications.setNotificationHandler({
@@ -34,16 +38,20 @@ export async function requestNotificationPermission() {
 }
 
 /**
- * Cancel all existing reminder notifications
+ * Cancel all existing reminder notifications for a user.
+ * Read stored IDs -> cancel each -> clear storage.
+ * @param {string} userId - User ID for per-user storage key
  */
-export async function cancelExistingReminders() {
+export async function cancelExistingReminders(userId) {
+  if (!userId) {
+    console.warn("[NotificationScheduler] cancelExistingReminders called without userId");
+    return;
+  }
   try {
-    // Get stored notification IDs
-    const storedIdsJson = await AsyncStorage.getItem(STORAGE_KEY);
+    const key = getStorageKey(userId);
+    const storedIdsJson = await AsyncStorage.getItem(key);
     if (storedIdsJson) {
       const notificationIds = JSON.parse(storedIdsJson);
-      
-      // Cancel each notification
       for (const id of notificationIds) {
         try {
           await Notifications.cancelScheduledNotificationAsync(id);
@@ -51,13 +59,8 @@ export async function cancelExistingReminders() {
           console.warn(`[NotificationScheduler] Could not cancel notification ${id}:`, e);
         }
       }
-      
-      // Clear stored IDs
-      await AsyncStorage.removeItem(STORAGE_KEY);
+      await AsyncStorage.removeItem(key);
     }
-
-    // Also cancel all notifications as a safety measure
-    await Notifications.cancelAllScheduledNotificationsAsync();
   } catch (error) {
     console.error("[NotificationScheduler] Error canceling reminders:", error);
   }
@@ -116,13 +119,16 @@ function getNotificationMessage(preferredScene) {
 }
 
 /**
- * Schedule weekly reminder notifications
+ * Schedule weekly reminder notifications.
+ * Dedup: cancel existing reminders for this user first, then schedule new, then persist IDs.
+ * Uses only weekly triggers: { weekday, hour, minute, repeats: true }.
  * @param {Object} options - Options object
  * @param {string} options.preferredScene - 'bars', 'clubs', or 'both'
  * @param {string[]} options.goingOutDays - Array of day codes (mon, tue, etc.)
+ * @param {string} options.userId - User ID for per-user storage
  * @returns {Promise<string[]>} Array of scheduled notification IDs
  */
-export async function scheduleWeeklyReminders({ preferredScene, goingOutDays }) {
+export async function scheduleWeeklyReminders({ preferredScene, goingOutDays, userId }) {
   if (!goingOutDays || goingOutDays.length === 0) {
     console.warn("[NotificationScheduler] No days provided, skipping scheduling");
     return [];
@@ -133,6 +139,14 @@ export async function scheduleWeeklyReminders({ preferredScene, goingOutDays }) 
     return [];
   }
 
+  if (!userId) {
+    console.warn("[NotificationScheduler] No userId provided, skipping scheduling");
+    return [];
+  }
+
+  // 1. Cancel previously scheduled reminder IDs (read -> cancel each -> clear)
+  await cancelExistingReminders(userId);
+
   const notificationIds = [];
   const { hour, minute } = getNotificationTime(preferredScene);
   const message = getNotificationMessage(preferredScene);
@@ -141,6 +155,7 @@ export async function scheduleWeeklyReminders({ preferredScene, goingOutDays }) 
     for (const dayCode of goingOutDays) {
       const weekday = mapDayCodeToWeekday(dayCode);
 
+      // 2. Schedule with WEEKLY trigger only: { weekday, hour, minute, repeats: true }
       const notificationId = await Notifications.scheduleNotificationAsync({
         content: {
           title: "DarkNite",
@@ -159,13 +174,12 @@ export async function scheduleWeeklyReminders({ preferredScene, goingOutDays }) 
       console.log(`[NotificationScheduler] Scheduled reminder for ${dayCode} at ${hour}:${minute.toString().padStart(2, "0")}`);
     }
 
-    // Store notification IDs for later cancellation
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(notificationIds));
+    // 3. Persist new IDs
+    await AsyncStorage.setItem(getStorageKey(userId), JSON.stringify(notificationIds));
 
     return notificationIds;
   } catch (error) {
     console.error("[NotificationScheduler] Error scheduling reminders:", error);
-    // Try to clean up any partially scheduled notifications
     for (const id of notificationIds) {
       try {
         await Notifications.cancelScheduledNotificationAsync(id);
@@ -174,5 +188,23 @@ export async function scheduleWeeklyReminders({ preferredScene, goingOutDays }) 
       }
     }
     throw error;
+  }
+}
+
+/**
+ * Dev-only: reset all scheduled notifications for testing.
+ * Calls cancelAllScheduledNotificationsAsync and optionally clears
+ * stored reminder IDs for the given user.
+ * @param {string} [userId] - If provided, clears AsyncStorage key for this user
+ */
+export async function resetRemindersForTesting(userId) {
+  try {
+    await Notifications.cancelAllScheduledNotificationsAsync();
+    if (userId) {
+      await AsyncStorage.removeItem(getStorageKey(userId));
+    }
+    console.log("[NotificationScheduler] resetRemindersForTesting done");
+  } catch (error) {
+    console.error("[NotificationScheduler] resetRemindersForTesting error:", error);
   }
 }

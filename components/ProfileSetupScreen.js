@@ -255,20 +255,17 @@ export default function ProfileSetupScreen({ navigation, route }) {
       }
 
       // Handle notifications if user selected days and has preferred scene
+      // Only schedule on explicit save; scheduleWeeklyReminders cancels old then schedules new
       let remindersEnabled = false;
       if (goingOutDaysToSave && goingOutDaysToSave.length > 0 && preferredScene) {
         try {
-          // Cancel existing reminders first
-          await cancelExistingReminders();
-
-          // Request permission
           const granted = await requestNotificationPermission();
           
           if (granted) {
-            // Schedule new reminders
             await scheduleWeeklyReminders({
               preferredScene,
               goingOutDays: goingOutDaysToSave,
+              userId: user.id,
             });
             remindersEnabled = true;
           }
@@ -291,7 +288,7 @@ export default function ProfileSetupScreen({ navigation, route }) {
       } else {
         // No days selected or no preferred scene - cancel existing reminders and disable
         try {
-          await cancelExistingReminders();
+          await cancelExistingReminders(user.id);
           await updateProfile({
             id: user.id,
             username: usernameToSave, // Preserve username

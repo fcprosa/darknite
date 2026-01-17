@@ -14,6 +14,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { getUserVibes } from "../services/vibeService";
 import { getUserProfile } from "../services/profileService";
 import { formatTimeAgo } from "../utils/timeHelpers";
+import { resetRemindersForTesting } from "../utils/notificationScheduler";
 
 // Get AppContext - we'll need to import it from App.js or create a hook
 // For now, we'll check isAuthenticated to determine guest mode
@@ -205,6 +206,18 @@ export default function ProfileScreen({ navigation: navigationProp, isGuest = fa
         </TouchableOpacity>
       </View>
 
+      {/* Dev-only: reset reminder notifications for testing */}
+      {__DEV__ && isAuthenticated && user?.id && (
+        <View style={styles.section}>
+          <TouchableOpacity
+            style={styles.devResetButton}
+            onPress={() => resetRemindersForTesting(user.id)}
+          >
+            <Text style={styles.devResetButtonText}>Reset reminders (dev)</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* Recent Vibes Section */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>My recent vibes</Text>
@@ -386,6 +399,15 @@ const styles = StyleSheet.create({
     color: "#A855F7",
     fontSize: 14,
     fontWeight: "600",
+  },
+  devResetButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    alignSelf: "flex-start",
+  },
+  devResetButtonText: {
+    color: "#6B7280",
+    fontSize: 12,
   },
   section: {
     paddingHorizontal: 16,
