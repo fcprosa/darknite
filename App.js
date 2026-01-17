@@ -1,5 +1,6 @@
 // Initialize Sentry as early as possible
 import './utils/sentry';
+import { getSentry } from './utils/sentry';
 
 import React, { useRef, useEffect } from "react";
 import { SafeAreaView, StyleSheet } from "react-native";
@@ -7,6 +8,9 @@ import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { AppProvider, useAppContext } from "./contexts/AppContext";
 import RootNavigator from "./navigation/RootNavigator";
 import AuthModal from "./components/AuthModal";
+
+// Get Sentry instance for wrapping
+const Sentry = getSentry();
 
 // Component to manage guest mode based on auth state
 function SignOutGuestReset() {
@@ -51,7 +55,8 @@ function AuthModalWrapper() {
   return <AuthModal visible={showAuthModal} onClose={handleClose} onGuestContinue={handleGuestContinue} />;
 }
 
-export default function App() {
+// Wrap App component with Sentry if available
+const AppComponent = function App() {
   return (
     <SafeAreaView style={styles.container}>
       <AuthProvider>
@@ -63,7 +68,10 @@ export default function App() {
       </AuthProvider>
     </SafeAreaView>
   );
-}
+};
+
+// Export wrapped or unwrapped App component
+export default Sentry && Sentry.wrap ? Sentry.wrap(AppComponent) : AppComponent;
 
 const styles = StyleSheet.create({
   container: {

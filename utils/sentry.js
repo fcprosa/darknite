@@ -4,12 +4,15 @@
  */
 
 import Constants from "expo-constants";
+import * as SentryModule from '@sentry/react-native';
 
-let Sentry = null;
+let Sentry = SentryModule;
 let isInitialized = false;
 
 const SENTRY_DSN = Constants.expoConfig?.extra?.sentryDsn || 
-                   Constants.manifest?.extra?.sentryDsn;
+                   Constants.manifest?.extra?.sentryDsn ||
+                   // Fallback: try direct env variable (for testing)
+                   process.env.SENTRY_DSN;
 
 /**
  * Initialize Sentry if DSN is configured
@@ -20,45 +23,63 @@ export function initSentry() {
     return Sentry;
   }
 
-  if (!SENTRY_DSN) {
+  // Check if already initialized by checking Sentry's internal state
+  if (Sentry && Sentry.getCurrentHub && Sentry.getCurrentHub().getClient()) {
+    console.log('[Sentry] Already initialized (initialized elsewhere)');
+    isInitialized = true;
+    return Sentry;
+  }
+
+  // Use DSN from App.js initialization if available, otherwise use env
+  const dsnToUse = SENTRY_DSN || 'https://8c5ab7a966adb5f438776a3ea0afd5aa@o4510722762735616.ingest.us.sentry.io/4510722765160448';
+
+  if (!dsnToUse) {
     console.log('[Sentry] DSN not configured, skipping initialization');
     isInitialized = true;
     return null;
   }
 
   try {
-    Sentry = require('@sentry/react-native');
+    // Only initialize if not already initialized
+    if (!Sentry.getCurrentHub || !Sentry.getCurrentHub().getClient()) {
+      Sentry.init({
+        dsn: dsnToUse,
+        
+        // Adds more context data to events (IP address, cookies, user, etc.)
+        sendDefaultPii: true,
+        
+        // Enable Logs
+        enableLogs: true,
+        
+        // Configure Session Replay
+        replaysSessionSampleRate: 0.1,
+        replaysOnErrorSampleRate: 1,
+        integrations: [Sentry.mobileReplayIntegration(), Sentry.feedbackIntegration()],
+        
+        enableInExpoDevelopment: false, // Set to true to test in dev mode
+        environment: process.env.NODE_ENV || 'development',
+        
+        // Configure which errors to capture
+        beforeSend(event, hint) {
+          // You can customize this to filter specific errors
+          // Uncomment the line below to disable Sentry in development completely
+          // if (process.env.NODE_ENV === 'development') return null;
+          return event;
+        },
+        
+        // Attach stack traces to all errors
+        attachStacktrace: true,
+        
+        // Set sample rate for performance monitoring (1.0 = 100%, 0.1 = 10%)
+        tracesSampleRate: 1.0,
+        
+        // Configure release tracking
+        release: Constants.expoConfig?.version || '1.0.0',
+      });
+      
+      console.log('[Sentry] Initialized successfully');
+    }
     
-    Sentry.init({
-      dsn: SENTRY_DSN,
-      enableInExpoDevelopment: false, // Set to true to test in dev mode
-      environment: process.env.NODE_ENV || 'development',
-      
-      // Configure which errors to capture
-      beforeSend(event, hint) {
-        // Filter out development-only errors if needed
-        // You can customize this to filter specific errors
-        // Uncomment the line below to disable Sentry in development completely
-        // if (process.env.NODE_ENV === 'development') return null;
-        return event;
-      },
-      
-      // Attach stack traces to all errors
-      attachStacktrace: true,
-      
-      // Set sample rate for performance monitoring (1.0 = 100%, 0.1 = 10%)
-      tracesSampleRate: 1.0,
-      
-      // Configure release tracking
-      release: Constants.expoConfig?.version || '1.0.0',
-      
-      // Set up default integrations
-      integrations: [
-        // Sentry's default integrations are added automatically
-      ],
-    });
-    
-    console.log('[Sentry] Initialized successfully');
     isInitialized = true;
     return Sentry;
   } catch (error) {
@@ -76,5 +97,5 @@ export function getSentry() {
   return Sentry;
 }
 
-// Auto-initialize when this module is imported
+// Auto-initialize when this module is imported (but check if already initialized)
 initSentry();
