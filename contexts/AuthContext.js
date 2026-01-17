@@ -155,6 +155,9 @@ export function AuthProvider({ children }) {
           await supabase.auth.signOut();
           throw new Error(profileError.message || "Failed to create profile");
         }
+
+        // After successful signup, set pendingNav to ProfileSetup
+        setPendingNav({ name: "ProfileSetup" });
       }
 
       return { data, error: null };

@@ -8,6 +8,7 @@ import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { AppProvider, useAppContext } from "./contexts/AppContext";
 import RootNavigator from "./navigation/RootNavigator";
 import AuthModal from "./components/AuthModal";
+import { navigationRef } from "./navigation/navigationService";
 
 // Get Sentry instance for wrapping
 const Sentry = getSentry();
@@ -55,6 +56,21 @@ function AuthModalWrapper() {
   return <AuthModal visible={showAuthModal} onClose={handleClose} onGuestContinue={handleGuestContinue} />;
 }
 
+// Component to handle pending navigation after signup
+function PendingNavHandler() {
+  const { session, pendingNav, setPendingNav } = useAuth();
+
+  useEffect(() => {
+    if (session && pendingNav && navigationRef.isReady()) {
+      console.log("[PendingNavHandler] Navigating to:", pendingNav.name);
+      navigationRef.navigate(pendingNav.name, pendingNav.params || {});
+      setPendingNav(null);
+    }
+  }, [session, pendingNav, setPendingNav]);
+
+  return null;
+}
+
 // Wrap App component with Sentry if available
 const AppComponent = function App() {
   return (
@@ -64,6 +80,7 @@ const AppComponent = function App() {
           <RootNavigator />
           <AuthModalWrapper />
           <SignOutGuestReset />
+          <PendingNavHandler />
         </AppProvider>
       </AuthProvider>
     </SafeAreaView>

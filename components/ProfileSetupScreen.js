@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../contexts/AuthContext";
 import { getUserProfile, updateProfile, getUserProfileUsername } from "../services/profileService";
 import { getNeighborhoods } from "../services/venueService";
+import { requestNotificationPermission, cancelExistingReminders, scheduleWeeklyReminders } from "../utils/notificationScheduler";
 
 const MUSIC_GENRES = [
   "Hip-Hop / R&B",
@@ -79,11 +80,12 @@ export default function ProfileSetupScreen({ navigation, route }) {
   const [preferredScene, setPreferredScene] = useState(null);
   const [favoriteGenres, setFavoriteGenres] = useState([]);
   const [favoriteNeighborhoods, setFavoriteNeighborhoods] = useState([]);
+  const [goingOutDays, setGoingOutDays] = useState([]);
   const [neighborhoods, setNeighborhoods] = useState(COMMON_NEIGHBORHOODS);
   
   const fadeAnim = useRef(new Animated.Value(1)).current;
   
-  const TOTAL_STEPS = 3;
+  const TOTAL_STEPS = 4;
 
   // Store existing username to preserve it during save
   const [existingUsername, setExistingUsername] = useState(null);
@@ -103,6 +105,7 @@ export default function ProfileSetupScreen({ navigation, route }) {
           setPreferredScene(profile.preferred_scene || null);
           setFavoriteGenres(profile.favorite_genres || []);
           setFavoriteNeighborhoods(profile.favorite_neighborhoods || []);
+          setGoingOutDays(profile.going_out_days || []);
         }
         setLoading(false);
       } catch (e) {
@@ -147,6 +150,17 @@ export default function ProfileSetupScreen({ navigation, route }) {
         return prev.filter(n => n !== neighborhood);
       } else if (prev.length < 3) {
         return [...prev, neighborhood];
+      }
+      return prev;
+    });
+  };
+
+  const toggleGoingOutDay = (day) => {
+    setGoingOutDays(prev => {
+      if (prev.includes(day)) {
+        return prev.filter(d => d !== day);
+      } else if (prev.length < 3) {
+        return [...prev, day];
       }
       return prev;
     });
@@ -219,12 +233,17 @@ export default function ProfileSetupScreen({ navigation, route }) {
     setSaving(true);
 
     try {
+      // Prepare going_out_days: null if empty, otherwise array of day codes
+      const goingOutDaysToSave = goingOutDays.length > 0 ? goingOutDays : null;
+
+      // Save profile first
       const { error } = await updateProfile({
         id: user.id,
         username: usernameToSave, // Preserve existing username
         preferred_scene: preferredScene || null,
         favorite_genres: favoriteGenres.length > 0 ? favoriteGenres : null,
         favorite_neighborhoods: favoriteNeighborhoods.length > 0 ? favoriteNeighborhoods : null,
+        going_out_days: goingOutDaysToSave,
         updated_at: new Date().toISOString(),
       });
 
@@ -233,6 +252,53 @@ export default function ProfileSetupScreen({ navigation, route }) {
         Alert.alert("Error", error.message || "Failed to save profile. Please try again.");
         setSaving(false);
         return;
+      }
+
+      // Handle notifications if user selected days and has preferred scene
+      let remindersEnabled = false;
+      if (goingOutDaysToSave && goingOutDaysToSave.length > 0 && preferredScene) {
+        try {
+          // Cancel existing reminders first
+          await cancelExistingReminders();
+
+          // Request permission
+          const granted = await requestNotificationPermission();
+          
+          if (granted) {
+            // Schedule new reminders
+            await scheduleWeeklyReminders({
+              preferredScene,
+              goingOutDays: goingOutDaysToSave,
+            });
+            remindersEnabled = true;
+          }
+        } catch (e) {
+          console.error("[ProfileSetup] Error setting up notifications:", e);
+          // Don't block save if notifications fail
+        }
+
+        // Update reminders_enabled flag
+        try {
+          await updateProfile({
+            id: user.id,
+            reminders_enabled: remindersEnabled,
+          });
+        } catch (e) {
+          console.error("[ProfileSetup] Error updating reminders_enabled:", e);
+          // Non-critical, continue
+        }
+      } else {
+        // No days selected or no preferred scene - cancel existing reminders and disable
+        try {
+          await cancelExistingReminders();
+          await updateProfile({
+            id: user.id,
+            reminders_enabled: false,
+          });
+        } catch (e) {
+          console.error("[ProfileSetup] Error canceling reminders:", e);
+          // Non-critical, continue
+        }
       }
 
       // Navigate back
@@ -257,7 +323,8 @@ export default function ProfileSetupScreen({ navigation, route }) {
   const canProceed = 
     (currentStep === 0 && preferredScene) ||
     (currentStep === 1 && favoriteGenres.length > 0) ||
-    (currentStep === 2 && favoriteNeighborhoods.length > 0);
+    (currentStep === 2 && favoriteNeighborhoods.length > 0) ||
+    (currentStep === 3); // Step 4 (going out days) is optional
 
   const progress = (currentStep + 1) / TOTAL_STEPS;
 
@@ -345,6 +412,34 @@ export default function ProfileSetupScreen({ navigation, route }) {
                     selected={favoriteNeighborhoods.includes(neighborhood)}
                     onPress={() => toggleNeighborhood(neighborhood)}
                     disabled={!favoriteNeighborhoods.includes(neighborhood) && favoriteNeighborhoods.length >= 3}
+                  />
+                ))}
+              </View>
+            </View>
+          )}
+
+          {currentStep === 3 && (
+            <View style={styles.step}>
+              <Text style={styles.stepTitle}>Going out days</Text>
+              <Text style={styles.stepDescription}>
+                Pick up to 3 days (optional)
+              </Text>
+              <View style={styles.optionsContainer}>
+                {[
+                  { code: "mon", label: "Monday" },
+                  { code: "tue", label: "Tuesday" },
+                  { code: "wed", label: "Wednesday" },
+                  { code: "thu", label: "Thursday" },
+                  { code: "fri", label: "Friday" },
+                  { code: "sat", label: "Saturday" },
+                  { code: "sun", label: "Sunday" },
+                ].map((day) => (
+                  <OptionChip
+                    key={day.code}
+                    label={day.label}
+                    selected={goingOutDays.includes(day.code)}
+                    onPress={() => toggleGoingOutDay(day.code)}
+                    disabled={!goingOutDays.includes(day.code) && goingOutDays.length >= 3}
                   />
                 ))}
               </View>
