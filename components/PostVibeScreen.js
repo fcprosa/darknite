@@ -19,6 +19,7 @@ import * as Haptics from "expo-haptics";
 import { useAuth } from "../contexts/AuthContext";
 import { useAppContext } from "../contexts/AppContext";
 import { createVibe } from "../services/vibeService";
+import { getVenueType } from "../services/venueService";
 import { validateVenueType, getVenueKey, getVenueKeySafe } from "../utils/venueHelpers";
 import { mapCoverPriceToDB, BAR_TIER_UI_LABELS, BAR_DRINKS_TIER_OPTIONS } from "../utils/priceMapping";
 import Toast from "./Toast";
