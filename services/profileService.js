@@ -111,27 +111,125 @@ export async function createProfile(profileData) {
 }
 
 /**
+ * Sanitize profile data by removing null/undefined values
+ * Ensures username is never null/undefined
+ * @param {Object} profileData - Raw profile data
+ * @returns {Object} Sanitized profile data
+ */
+function sanitizeProfileData(profileData) {
+  const sanitized = {};
+  
+  for (const [key, value] of Object.entries(profileData)) {
+    // Skip null and undefined values (but allow empty strings and false)
+    if (value === null || value === undefined) {
+      continue;
+    }
+    
+    // Special handling for username: only include if it's a non-empty string
+    if (key === "username") {
+      if (typeof value === "string" && value.trim().length > 0) {
+        sanitized[key] = value.trim().toLowerCase();
+      }
+      // Skip username if it's empty/null/undefined
+      continue;
+    }
+    
+    sanitized[key] = value;
+  }
+  
+  return sanitized;
+}
+
+/**
  * Update user profile (upsert)
  * @param {Object} profileData - Profile data object (must include id)
  * @returns {Promise<{data: Object|null, error: Error|null}>} Result object
  */
 export async function updateProfile(profileData) {
+  if (!profileData || !profileData.id) {
+    const error = new Error("Profile data must include id");
+    log.error("Invalid profile data:", error);
+    return { data: null, error };
+  }
+
   try {
-    const { data, error } = await supabase
-      .from("user_profiles")
-      .upsert(profileData, {
-        onConflict: "id"
-      })
-      .select()
-      .single();
+    const userId = profileData.id;
+    
+    // Check if profile exists
+    const exists = await profileExists(userId);
+    
+    // Sanitize payload: remove null/undefined values
+    const sanitized = sanitizeProfileData(profileData);
+    
+    // If profile exists, use UPDATE (safer - won't try to insert without username)
+    if (exists) {
+      // If username is missing from payload, fetch existing username to preserve it
+      if (!sanitized.username) {
+        const existingProfile = await getUserProfileUsername(userId);
+        if (existingProfile?.username) {
+          sanitized.username = existingProfile.username;
+          log.log("Preserving existing username in update");
+        } else {
+          log.error("Profile exists but username is missing - cannot update without username");
+          return {
+            data: null,
+            error: new Error("Cannot update profile: username is required"),
+          };
+        }
+      }
+      
+      // Log payload (without sensitive data)
+      log.log("Updating profile:", {
+        id: sanitized.id,
+        hasUsername: !!sanitized.username,
+        fields: Object.keys(sanitized).filter(k => k !== "id" && k !== "username"),
+      });
+      
+      const { data, error } = await supabase
+        .from("user_profiles")
+        .update(sanitized)
+        .eq("id", userId)
+        .select()
+        .single();
 
-    if (error) {
-      log.error("Error updating profile:", error);
-      return { data: null, error };
+      if (error) {
+        log.error("Error updating profile:", error);
+        return { data: null, error };
+      }
+
+      log.log("Profile updated successfully");
+      return { data, error: null };
+    } else {
+      // Profile doesn't exist - this is an insert, username is REQUIRED
+      if (!sanitized.username || typeof sanitized.username !== "string" || sanitized.username.trim().length === 0) {
+        log.error("Cannot create profile without username");
+        return {
+          data: null,
+          error: new Error("Cannot create profile: username is required"),
+        };
+      }
+      
+      // Log payload for insert
+      log.log("Creating profile:", {
+        id: sanitized.id,
+        hasUsername: !!sanitized.username,
+        fields: Object.keys(sanitized).filter(k => k !== "id" && k !== "username"),
+      });
+      
+      const { data, error } = await supabase
+        .from("user_profiles")
+        .insert(sanitized)
+        .select()
+        .single();
+
+      if (error) {
+        log.error("Error creating profile:", error);
+        return { data: null, error };
+      }
+
+      log.log("Profile created successfully");
+      return { data, error: null };
     }
-
-    log.log("Profile updated successfully");
-    return { data, error: null };
   } catch (error) {
     log.error("Exception updating profile:", error);
     return { data: null, error };

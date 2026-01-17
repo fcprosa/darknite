@@ -277,10 +277,11 @@ export default function ProfileSetupScreen({ navigation, route }) {
           // Don't block save if notifications fail
         }
 
-        // Update reminders_enabled flag
+        // Update reminders_enabled flag (include username to preserve it)
         try {
           await updateProfile({
             id: user.id,
+            username: usernameToSave, // Preserve username
             reminders_enabled: remindersEnabled,
           });
         } catch (e) {
@@ -293,6 +294,7 @@ export default function ProfileSetupScreen({ navigation, route }) {
           await cancelExistingReminders();
           await updateProfile({
             id: user.id,
+            username: usernameToSave, // Preserve username
             reminders_enabled: false,
           });
         } catch (e) {
