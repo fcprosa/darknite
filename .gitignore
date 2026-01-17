@@ -60,3 +60,5 @@ GoogleService-Info.plist
 # Supabase local (se usares CLI)
 supabase/.temp/
 supabase/.branches/
+
+.env.local

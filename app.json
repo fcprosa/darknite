@@ -18,7 +18,15 @@
       "usesAppleSignIn": true
     },
     "plugins": [
-      "expo-apple-authentication"
+      "expo-apple-authentication",
+      [
+        "@sentry/react-native/expo",
+        {
+          "url": "https://sentry.io/",
+          "project": "react-native",
+          "organization": "darknite"
+        }
+      ]
     ],
     "android": {
       "adaptiveIcon": {

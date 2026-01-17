@@ -9,10 +9,10 @@ import * as SentryModule from '@sentry/react-native';
 let Sentry = SentryModule;
 let isInitialized = false;
 
-const SENTRY_DSN = Constants.expoConfig?.extra?.sentryDsn || 
-                   Constants.manifest?.extra?.sentryDsn ||
-                   // Fallback: try direct env variable (for testing)
-                   process.env.SENTRY_DSN;
+const SENTRY_DSN =
+  Constants.expoConfig?.extra?.sentryDsn ||
+  Constants.manifest?.extra?.sentryDsn ||
+  process.env.EXPO_PUBLIC_SENTRY_DSN;
 
 /**
  * Initialize Sentry if DSN is configured
@@ -31,7 +31,7 @@ export function initSentry() {
   }
 
   // Use DSN from App.js initialization if available, otherwise use env
-  const dsnToUse = SENTRY_DSN || 'https://8c5ab7a966adb5f438776a3ea0afd5aa@o4510722762735616.ingest.us.sentry.io/4510722765160448';
+  const dsnToUse = SENTRY_DSN;
 
   if (!dsnToUse) {
     console.log('[Sentry] DSN not configured, skipping initialization');
@@ -46,10 +46,10 @@ export function initSentry() {
         dsn: dsnToUse,
         
         // Adds more context data to events (IP address, cookies, user, etc.)
-        sendDefaultPii: true,
+        sendDefaultPii: false,
         
         // Enable Logs
-        enableLogs: true,
+        enableLogs: __DEV__,
         
         // Configure Session Replay
         replaysSessionSampleRate: 0.1,
@@ -71,7 +71,7 @@ export function initSentry() {
         attachStacktrace: true,
         
         // Set sample rate for performance monitoring (1.0 = 100%, 0.1 = 10%)
-        tracesSampleRate: 1.0,
+        tracesSampleRate: 0.1,
         
         // Configure release tracking
         release: Constants.expoConfig?.version || '1.0.0',
