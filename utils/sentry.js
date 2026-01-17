@@ -6,6 +6,8 @@
 import Constants from "expo-constants";
 import * as SentryModule from '@sentry/react-native';
 
+const __DEV__ = process.env.NODE_ENV !== 'production';
+
 let Sentry = SentryModule;
 let isInitialized = false;
 
