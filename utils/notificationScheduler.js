@@ -7,6 +7,18 @@ function getStorageKey(userId) {
   return `${STORAGE_KEY_PREFIX}_${userId}`;
 }
 
+function getSignatureKey(userId) {
+  return `reminder_signature_${userId}`;
+}
+
+/**
+ * Generate a signature from reminder settings to detect if they changed
+ */
+function generateReminderSignature({ goingOutDays, preferredScene, hour, minute }) {
+  const sortedDays = [...goingOutDays].sort().join(',');
+  return JSON.stringify({ days: sortedDays, pref: preferredScene, hour, minute });
+}
+
 // Configure notification behavior
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -39,7 +51,7 @@ export async function requestNotificationPermission() {
 
 /**
  * Cancel all existing reminder notifications for a user.
- * Read stored IDs -> cancel each -> clear storage.
+ * Read stored IDs -> cancel each -> clear storage and signature.
  * @param {string} userId - User ID for per-user storage key
  */
 export async function cancelExistingReminders(userId) {
@@ -49,6 +61,7 @@ export async function cancelExistingReminders(userId) {
   }
   try {
     const key = getStorageKey(userId);
+    const signatureKey = getSignatureKey(userId);
     const storedIdsJson = await AsyncStorage.getItem(key);
     if (storedIdsJson) {
       const notificationIds = JSON.parse(storedIdsJson);
@@ -61,6 +74,8 @@ export async function cancelExistingReminders(userId) {
       }
       await AsyncStorage.removeItem(key);
     }
+    // Also clear signature so settings are considered "changed" next time
+    await AsyncStorage.removeItem(signatureKey);
   } catch (error) {
     console.error("[NotificationScheduler] Error canceling reminders:", error);
   }
@@ -144,18 +159,48 @@ export async function scheduleWeeklyReminders({ preferredScene, goingOutDays, us
     return [];
   }
 
-  // 1. Cancel previously scheduled reminder IDs (read -> cancel each -> clear)
+  const { hour, minute } = getNotificationTime(preferredScene);
+  const message = getNotificationMessage(preferredScene);
+
+  // Check if settings changed - if not, skip re-scheduling
+  const newSignature = generateReminderSignature({ goingOutDays, preferredScene, hour, minute });
+  const signatureKey = getSignatureKey(userId);
+  try {
+    const existingSignature = await AsyncStorage.getItem(signatureKey);
+    if (existingSignature === newSignature) {
+      console.log("[NotificationScheduler] Reminder settings unchanged, skipping re-schedule");
+      // Return existing IDs if we have them
+      const existingIdsJson = await AsyncStorage.getItem(getStorageKey(userId));
+      if (existingIdsJson) {
+        return JSON.parse(existingIdsJson);
+      }
+      return [];
+    }
+  } catch (e) {
+    console.warn("[NotificationScheduler] Error checking signature:", e);
+    // Continue with scheduling if signature check fails
+  }
+
+  // 1. NUCLEAR: Cancel ALL scheduled notifications before scheduling new ones
+  // This prevents duplicates from orphaned notifications
+  try {
+    await Notifications.cancelAllScheduledNotificationsAsync();
+    console.log("[NotificationScheduler] Canceled all scheduled notifications");
+  } catch (e) {
+    console.warn("[NotificationScheduler] Error canceling all notifications:", e);
+  }
+
+  // 2. Cancel previously scheduled reminder IDs for this user (read -> cancel each -> clear)
   await cancelExistingReminders(userId);
 
   const notificationIds = [];
-  const { hour, minute } = getNotificationTime(preferredScene);
-  const message = getNotificationMessage(preferredScene);
 
   try {
     for (const dayCode of goingOutDays) {
       const weekday = mapDayCodeToWeekday(dayCode);
 
-      // 2. Schedule with WEEKLY trigger only: { weekday, hour, minute, repeats: true }
+      // 3. Schedule with WEEKLY trigger ONLY: { weekday, hour, minute, repeats: true }
+      // NO trigger: null, NO seconds-based triggers, NO immediate triggers
       const notificationId = await Notifications.scheduleNotificationAsync({
         content: {
           title: "DarkNite",
@@ -174,12 +219,15 @@ export async function scheduleWeeklyReminders({ preferredScene, goingOutDays, us
       console.log(`[NotificationScheduler] Scheduled reminder for ${dayCode} at ${hour}:${minute.toString().padStart(2, "0")}`);
     }
 
-    // 3. Persist new IDs
+    // 4. Persist new IDs and signature
     await AsyncStorage.setItem(getStorageKey(userId), JSON.stringify(notificationIds));
+    await AsyncStorage.setItem(signatureKey, newSignature);
 
+    console.log(`[NotificationScheduler] Scheduled ${notificationIds.length} reminders for user ${userId}`);
     return notificationIds;
   } catch (error) {
     console.error("[NotificationScheduler] Error scheduling reminders:", error);
+    // Cleanup on error
     for (const id of notificationIds) {
       try {
         await Notifications.cancelScheduledNotificationAsync(id);
@@ -194,14 +242,15 @@ export async function scheduleWeeklyReminders({ preferredScene, goingOutDays, us
 /**
  * Dev-only: reset all scheduled notifications for testing.
  * Calls cancelAllScheduledNotificationsAsync and optionally clears
- * stored reminder IDs for the given user.
- * @param {string} [userId] - If provided, clears AsyncStorage key for this user
+ * stored reminder IDs and signature for the given user.
+ * @param {string} [userId] - If provided, clears AsyncStorage keys for this user
  */
 export async function resetRemindersForTesting(userId) {
   try {
     await Notifications.cancelAllScheduledNotificationsAsync();
     if (userId) {
       await AsyncStorage.removeItem(getStorageKey(userId));
+      await AsyncStorage.removeItem(getSignatureKey(userId));
     }
     console.log("[NotificationScheduler] resetRemindersForTesting done");
   } catch (error) {
