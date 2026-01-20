@@ -308,8 +308,10 @@ function validateVibeData(vibeData) {
     return { valid: false, error: 'Invalid line value' };
   }
 
-  const validCoverValues = ['Free', '< $10', '$10-20', '$20-30', '$30+'];
-  if (vibeData.cover && !validCoverValues.includes(vibeData.cover)) {
+  // Cover values are stored as DB format: "$", "$$", "$$$", "$$$$" (or null for Free)
+  // This matches what mapCoverPriceToDB() returns
+  const validCoverValues = ['$', '$$', '$$$', '$$$$'];
+  if (vibeData.cover !== null && vibeData.cover !== undefined && !validCoverValues.includes(vibeData.cover)) {
     return { valid: false, error: 'Invalid cover value' };
   }
 
