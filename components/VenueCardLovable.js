@@ -39,10 +39,21 @@ function getCrowdEmoji(crowd) {
   switch (crowd) {
     case "Dead": return "💀";
     case "Chill": return "😌";
-    case "Fun": return "😄";
+    case "Fun": return "🎉";
     case "Packed": return "🔥";
-    case "Chaos": return "⚡";
-    default: return null;
+    case "Chaos": return "🌪️";
+    default: return "❓";
+  }
+}
+
+function getCrowdBadgeStyle(crowd) {
+  switch (crowd) {
+    case "Dead": return { bg: "rgba(156, 163, 175, 0.2)", border: "rgba(156, 163, 175, 0.3)" };
+    case "Chill": return { bg: "rgba(59, 130, 246, 0.2)", border: "rgba(59, 130, 246, 0.3)" };
+    case "Fun": return { bg: "rgba(168, 85, 247, 0.2)", border: "rgba(168, 85, 247, 0.3)" };
+    case "Packed": return { bg: "rgba(239, 68, 68, 0.2)", border: "rgba(239, 68, 68, 0.3)" };
+    case "Chaos": return { bg: "rgba(251, 146, 60, 0.2)", border: "rgba(251, 146, 60, 0.3)" };
+    default: return { bg: "rgba(156, 163, 175, 0.15)", border: "rgba(156, 163, 175, 0.25)" };
   }
 }
 
@@ -106,12 +117,15 @@ export default function VenueCardLovable({ venue, latestVibe, onPress, onPostVib
   }
   
   // Derive display data
-  const timeAgo = latestVibe?.created_at ? formatTimeAgo(latestVibe.created_at, true) : null;
+  const crowdLevel = latestVibe?.crowd || null;
+  const crowdEmoji = crowdLevel ? getCrowdEmoji(crowdLevel) : "❓";
+  const crowdLabel = crowdLevel || "Unknown";
+  const crowdBadgeStyle = getCrowdBadgeStyle(crowdLevel);
   
   // Bar-specific fields
   const barType = latestVibe?.bar_type || null;
-  const barTypeEmoji = barType ? getBarTypeEmoji(barType) : "";
-  const barTypeLabel = barType ? getBarTypeLabel(barType) : null;
+  const barTypeEmoji = barType ? getBarTypeEmoji(barType) : "🍸";
+  const barTypeLabel = barType ? getBarTypeLabel(barType) : "—";
   
   // For bars: use drinks_price_tier (new system), fallback to legacy drinks_price
   let drinksPrice = null;
@@ -129,26 +143,25 @@ export default function VenueCardLovable({ venue, latestVibe, onPress, onPostVib
   const musicText = latestVibe?.music || null;
   const musicEmoji = musicText ? getMusicEmoji(musicText) : "🎵";
 
-  // Build stat tiles based on venue type
+  // Build stat tiles based on venue type - always show 3 tiles, use "—" when no data
   const statTiles = useMemo(() => {
-    if (!hasVibe) return [];
-    
     if (isClub) {
       // CLUB tiles: Line, Cover, Music
       return [
-        { icon: "⏱", value: lineText, label: "Line" },
-        { icon: "💵", value: coverText, label: "Cover" },
-        { icon: musicEmoji, value: musicText || "—", label: "Music" },
+        { icon: "⏱", value: hasVibe ? lineText : "—", label: "Line" },
+        { icon: "💵", value: hasVibe ? coverText : "—", label: "Cover" },
+        { icon: musicEmoji, value: hasVibe && musicText ? musicText : "—", label: "Music" },
       ];
     } else if (isBar) {
       // BAR tiles: Bar Type, Drinks, Music
       return [
-        { icon: barTypeEmoji || "🍸", value: barTypeLabel || "—", label: "Type" },
-        { icon: "🍹", value: drinksPrice || "—", label: "Drinks" },
-        { icon: musicEmoji, value: musicText || "—", label: "Music" },
+        { icon: barTypeEmoji || "🍸", value: hasVibe && barTypeLabel ? barTypeLabel : "—", label: "Type" },
+        { icon: "🍹", value: hasVibe && drinksPrice ? drinksPrice : "—", label: "Drinks" },
+        { icon: musicEmoji, value: hasVibe && musicText ? musicText : "—", label: "Music" },
       ];
     }
     
+    // Fallback: return empty array if neither bar nor club
     return [];
   }, [hasVibe, isClub, isBar, lineText, coverText, musicText, musicEmoji, barTypeEmoji, barTypeLabel, drinksPrice]);
 
@@ -226,7 +239,7 @@ export default function VenueCardLovable({ venue, latestVibe, onPress, onPostVib
 
   const address = venue?.address || null;
   const neighborhood = venue?.neighborhood || null;
-  const subheaderText = address 
+  const locationText = address 
     ? `${neighborhood || ""}${neighborhood && address ? " • " : ""}${address}` 
     : (neighborhood || "");
 
@@ -252,82 +265,81 @@ export default function VenueCardLovable({ venue, latestVibe, onPress, onPostVib
             onPressOut={handlePressOut}
             activeOpacity={1}
           >
-            {/* Header Row */}
-            <View style={styles.headerRow}>
-              <View style={styles.headerLeft}>
-                <View style={styles.nameRow}>
-                  <Text style={styles.venueName}>{venue?.name || "Unknown"}</Text>
-                  <View style={styles.typeBadge}>
-                    {!venueTypeValidation.valid ? (
-                      <>
-                        <Text style={styles.typeBadgeEmoji}>⚠️</Text>
-                        <Text style={[styles.typeBadgeText, styles.typeBadgeError]}>ERROR</Text>
-                      </>
-                    ) : (
-                      <>
-                        <Text style={styles.typeBadgeEmoji}>{isClub ? "🪩" : "🍸"}</Text>
-                        <Text style={styles.typeBadgeText}>{isClub ? "CLUB" : "BAR"}</Text>
-                      </>
-                    )}
-                  </View>
-                  {isHot && (
-                    <View style={styles.hotPill}>
-                      <Text style={styles.hotPillText}>HOT</Text>
-                    </View>
-                  )}
-                </View>
-              </View>
-              <View style={styles.headerRight}>
-                {timeAgo ? (
-                  <View style={styles.updatedRow}>
-                    <View style={styles.statusDot} />
-                    <Text style={styles.updatedText}>{timeAgo}</Text>
-                  </View>
-                ) : (
-                  <Text style={styles.updatedTextInactive}>—</Text>
-                )}
+            {/* Top Badge Row - Crowd Headline */}
+            <View style={styles.topBadgeRow}>
+              <View style={[styles.crowdBadge, { backgroundColor: crowdBadgeStyle.bg, borderColor: crowdBadgeStyle.border }]}>
+                <Text style={styles.crowdBadgeEmoji}>{crowdEmoji}</Text>
+                <Text style={styles.crowdBadgeText}>{crowdLabel}</Text>
               </View>
             </View>
 
-            {/* Subheader */}
-            {subheaderText && (
-              <Text style={styles.subheader}>{subheaderText}</Text>
-            )}
+            {/* Title Block */}
+            <View style={styles.titleBlock}>
+              <View style={styles.nameRow}>
+                <Text style={styles.venueName}>{venue?.name || "Unknown"}</Text>
+                <View style={styles.typeBadge}>
+                  {!venueTypeValidation.valid ? (
+                    <>
+                      <Text style={styles.typeBadgeEmoji}>⚠️</Text>
+                      <Text style={[styles.typeBadgeText, styles.typeBadgeError]}>ERROR</Text>
+                    </>
+                  ) : (
+                    <>
+                      <Text style={styles.typeBadgeEmoji}>{isClub ? "🪩" : "🍸"}</Text>
+                      <Text style={styles.typeBadgeText}>{isClub ? "CLUB" : "BAR"}</Text>
+                    </>
+                  )}
+                </View>
+              </View>
+              {locationText && (
+                <Text style={styles.locationText}>{locationText}</Text>
+              )}
+            </View>
 
-            {/* Ratio Bar */}
-            {ratioInfo.show && (
+            {/* CLUB Ratio Block - ONLY for clubs */}
+            {isClub && ratioInfo.show && (
               <View style={styles.ratioContainer}>
                 <View style={styles.ratioBar}>
                   <View style={[styles.ratioSegmentGuys, { flex: ratioInfo.guys }]} />
                   <View style={[styles.ratioSegmentGirls, { flex: ratioInfo.girls }]} />
                 </View>
                 <View style={styles.ratioLabels}>
-                  <Text style={styles.ratioLabel}>{ratioInfo.guys}%</Text>
-                  <Text style={styles.ratioLabel}>{ratioInfo.girls}%</Text>
+                  <View style={styles.ratioLabelLeft}>
+                    <Text style={styles.ratioEmoji}>👨</Text>
+                    <Text style={styles.ratioLabel}>{ratioInfo.guys}%</Text>
+                  </View>
+                  <View style={styles.ratioLabelRight}>
+                    <Text style={styles.ratioLabel}>{ratioInfo.girls}%</Text>
+                    <Text style={styles.ratioEmoji}>👩</Text>
+                  </View>
                 </View>
+                {ratioInfo.isDefault && (
+                  <Text style={styles.ratioCaption}>No data yet — guessed 50/50</Text>
+                )}
               </View>
             )}
 
-            {/* Stats Tiles or No Vibe State */}
-            {hasVibe ? (
-              <View style={styles.statTilesRow}>
-                {statTiles.map((tile, index) => (
-                  <View key={index} style={styles.statTile}>
-                    <Text style={styles.statIcon}>{tile.icon}</Text>
-                    <Text style={styles.statValue} numberOfLines={1}>{tile.value}</Text>
-                    <Text style={styles.statLabel}>{tile.label}</Text>
-                  </View>
-                ))}
-              </View>
-            ) : (
+            {/* Stats Tiles Row - Always show 3 tiles, use "—" when no vibe */}
+            <View style={styles.statTilesRow}>
+              {statTiles.map((tile, index) => (
+                <View key={index} style={styles.statTile}>
+                  <Text style={styles.statIcon}>{tile.icon}</Text>
+                  <Text style={styles.statValue} numberOfLines={1}>{tile.value || "—"}</Text>
+                  <Text style={styles.statLabel}>{tile.label}</Text>
+                </View>
+              ))}
+            </View>
+
+            {/* No Vibes State Message - Show when no vibe */}
+            {!hasVibe && (
               <View style={styles.noVibesContainer}>
                 <Text style={styles.noVibesText}>There are no vibes yet</Text>
                 <Text style={styles.noVibesSubtext}>Be the first one</Text>
               </View>
             )}
 
-            {/* CTA Area */}
-            <View style={styles.ctaArea}>
+            {/* Actions Row */}
+            <View style={styles.actionsRow}>
               <TouchableOpacity
                 style={styles.primaryButton}
                 onPress={handlePostVibe}
@@ -443,29 +455,47 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(168,85,247,0.3)",
     padding: 16,
-    minHeight: 200,
   },
-  headerRow: {
+  topBadgeRow: {
+    marginBottom: 12,
+  },
+  crowdBadge: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    marginBottom: 8,
+    alignItems: "center",
+    alignSelf: "flex-start",
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderWidth: 1,
+    gap: 6,
   },
-  headerLeft: {
-    flex: 1,
-    marginRight: 12,
+  crowdBadgeEmoji: {
+    fontSize: 14,
+  },
+  crowdBadgeText: {
+    color: "#E5E7EB",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  titleBlock: {
+    marginBottom: 16,
   },
   nameRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
     flexWrap: "wrap",
-    marginBottom: 4,
+    marginBottom: 6,
   },
   venueName: {
     color: "#F9FAFB",
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: "700",
+  },
+  locationText: {
+    color: "#9CA3AF",
+    fontSize: 13,
+    marginTop: 2,
   },
   typeBadge: {
     flexDirection: "row",
@@ -489,71 +519,51 @@ const styles = StyleSheet.create({
   typeBadgeError: {
     color: "#EF4444",
   },
-  hotPill: {
-    backgroundColor: "rgba(239,68,68,0.2)",
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderWidth: 1,
-    borderColor: "rgba(239,68,68,0.4)",
-  },
-  hotPillText: {
-    color: "#EF4444",
-    fontSize: 10,
-    fontWeight: "700",
-  },
-  headerRight: {
-    alignItems: "flex-end",
-  },
-  updatedRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  statusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: "#10B981",
-  },
-  updatedText: {
-    color: "#9CA3AF",
-    fontSize: 11,
-    fontWeight: "500",
-  },
-  updatedTextInactive: {
-    color: "#6B7280",
-    fontSize: 11,
-  },
-  subheader: {
-    color: "#9CA3AF",
-    fontSize: 12,
-    marginBottom: 12,
-  },
   ratioContainer: {
-    marginBottom: 12,
+    marginBottom: 16,
   },
   ratioBar: {
     flexDirection: "row",
-    height: 4,
-    borderRadius: 2,
+    height: 6,
+    borderRadius: 3,
     overflow: "hidden",
     backgroundColor: "#1F2937",
-    marginBottom: 4,
+    marginBottom: 8,
   },
   ratioSegmentGuys: {
-    backgroundColor: "#38BDF8",
+    backgroundColor: "#3B82F6", // Blue
   },
   ratioSegmentGirls: {
-    backgroundColor: "#F973FF",
+    backgroundColor: "#EC4899", // Pink
   },
   ratioLabels: {
     flexDirection: "row",
     justifyContent: "space-between",
+    alignItems: "center",
+  },
+  ratioLabelLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  ratioLabelRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  ratioEmoji: {
+    fontSize: 14,
   },
   ratioLabel: {
-    color: "#6B7280",
+    color: "#E5E7EB",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  ratioCaption: {
+    color: "#9CA3AF",
     fontSize: 10,
+    marginTop: 4,
+    textAlign: "center",
   },
   statTilesRow: {
     flexDirection: "row",
@@ -585,21 +595,22 @@ const styles = StyleSheet.create({
     fontSize: 10,
   },
   noVibesContainer: {
-    paddingVertical: 16,
+    paddingVertical: 12,
     alignItems: "center",
+    marginTop: 8,
     marginBottom: 16,
   },
   noVibesText: {
-    color: "rgba(156, 163, 175, 0.7)",
-    fontSize: 13,
-    fontWeight: "500",
-    marginBottom: 4,
+    color: "rgba(156, 163, 175, 0.6)",
+    fontSize: 12,
+    fontWeight: "400",
+    marginBottom: 2,
   },
   noVibesSubtext: {
     color: "rgba(156, 163, 175, 0.5)",
     fontSize: 11,
   },
-  ctaArea: {
+  actionsRow: {
     marginTop: 8,
   },
   primaryButton: {
