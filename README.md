@@ -1,217 +1,305 @@
-🌙 DarkNite
-Real-time nightlife intel for NYC bars & clubs.
+# 🌙 DarkNite  
+**Real-time nightlife intel for NYC bars & clubs**
 
-DarkNite is a React Native mobile app that lets users share and discover live venue vibes—crowd levels, music, pricing, line waits, and more. Check in for points, post detailed vibes, and find the perfect spot for your night out.
+DarkNite is a **React Native mobile app** that lets users share and discover live venue vibes — crowd levels, music, pricing, line waits, and more.
 
-🚀 Quick Start
-Prerequisites
-Node.js 18+ and npm
-Expo CLI: npm install -g expo-cli
+Check in for points, post detailed vibes, and find the perfect spot for your night out.
+
+---
+
+## 🚀 Quick Start
+
+### Prerequisites
+- **Node.js 18+**
+- **npm**
+- **Expo CLI**
+  ```bash
+  npm install -g expo-cli
 Supabase account with a project set up
-Installation
-1. Clone and install dependencies:
 
-bash
-git clone <your-repo>
+Installation
+1️⃣ Clone the repo and install dependencies
+git clone <your-repo-url>
 cd darknite
 npm install
-2. Set up environment variables:
+2️⃣ Environment variables
+Create a .env file in the project root:
 
-Create a .env file in the root directory:
-
-env
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_ANON_KEY=your-anon-key-here
-📍 Get these from your Supabase project: Settings → API
-⚠️ The .env file is in .gitignore - never commit it!
+📍 Get these from: Supabase Dashboard → Settings → API
 
-3. Database setup:
+⚠️ Important
 
-Your database should already be set up. If starting fresh, refer to database-schema.md for the complete schema.
+.env is in .gitignore
 
-Key tables: venues, vibes, check_ins, user_profiles, user_points
+Never commit environment variables
 
-4. Run the app:
+3️⃣ Database setup
+If starting fresh, see database-schema.md for the full schema.
 
-bash
+Key tables:
+
+venues
+
+vibes
+
+check_ins
+
+user_profiles
+
+user_points
+
+4️⃣ Run the app
 npm start
-Scan the QR code with Expo Go (iOS/Android) or press i for iOS simulator / a for Android emulator.
+Scan the QR code with Expo Go (iOS / Android)
+
+Or press:
+
+i → iOS simulator
+
+a → Android emulator
 
 📱 Features
 🎯 Core Features
 Quick Check-ins (+1 point)
-
 Clubs: Report line wait time
+
 Bars: Report crowd level
-Detailed Vibes (+5 points, coming soon)
 
-Share crowd, music, pricing, ratio, and more
-Different fields for bars vs. clubs
+Detailed Vibes (+5 points — coming soon)
+Crowd
+
+Music
+
+Pricing
+
+Ratio
+
+Different fields for bars vs clubs
+
 Live Venue Intel
+Latest check-ins & vibes
 
-See latest check-ins and vibes
 Real-time crowd tracking
-Line wait estimates for clubs
+
+Line wait estimates (clubs)
+
 Gamification
-
 Earn points for contributions
+
+Track check-ins & vibes
+
 Leaderboards (coming soon)
-Track your check-ins and vibes
-Personalized For You Feed (coming soon)
 
-Based on your preferred days, neighborhoods, and music
-Smart recommendations
+Personalized “For You” Feed (coming soon)
+Based on preferred days, neighborhoods & music
+
+Smart venue recommendations
+
 🏗️ Key Concepts
-Bars vs. Clubs:
+Bars vs Clubs
+Bars track:
 
-Bars track: crowd level, drinks pricing, bar type
-Clubs track: line wait, cover charge, music
-Points System:
+Crowd level
 
-✓ Check-in: +1 point
-🔥 Post vibe: +5 points (to be implemented)
+Drinks pricing
+
+Bar type
+
+Clubs track:
+
+Line wait
+
+Cover charge
+
+Music
+
+Points System
+✅ Check-in → +1 point
+
+🔥 Post vibe → +5 points (planned)
+
 🗄️ Database
 Schema Overview
-The app uses 5 main tables:
-
 Table	Purpose
 venues	Nightlife venues (bars & clubs)
 vibes	User-submitted detailed vibes
 check_ins	Quick check-ins with minimal info
-user_profiles	User info and nightlife preferences
-user_points	Gamification tracking
-📚 For detailed schema documentation, see database-schema.md
+user_profiles	User info & nightlife preferences
+user_points	Gamification & scoring
+📚 See database-schema.md for full documentation.
 
-Key Features
-Row Level Security (RLS) enabled on all tables
-Users can only edit their own data
+Database Features
+Row Level Security (RLS) on all tables
+
+Users can only modify their own data
+
 Public read access for venue data
-Rate limiting and spam prevention
+
+Rate limiting & spam prevention
+
 🔐 Authentication & Security
 Supabase Auth
-Email/password authentication via Supabase Auth
-JWT-based session management
-Auto-refresh tokens
-RLS Policies
-Implemented for all tables:
+Email/password authentication
 
-user_profiles: Users can only edit their own profile
-user_points: Public read (leaderboards), users update own points
-check_ins: Public read, users insert/delete own check-ins
-vibes: Public read, users delete own vibes
-venues: Public read, admin-only write
+JWT-based sessions
+
+Auto-refresh tokens
+
+RLS Policies
+user_profiles → users edit own profile
+
+user_points → public read, users update own
+
+check_ins → public read, users insert/delete own
+
+vibes → public read, users delete own
+
+venues → public read, admin-only write
+
 Data Privacy
-Sensitive data never logged in production
-User emails and auth data protected by Supabase Auth
-No location tracking (lat/lng removed from check-ins)
+No sensitive data logged in production
+
+Auth data protected by Supabase
+
+No location tracking (lat/lng removed)
+
 📂 Project Structure
 darknite/
-├── components/          # React Native components
-│   ├── VenueCardLovable.js       # Venue card on map
-│   ├── VenueDetailsLovable.js    # Venue details screen
-│   └── CheckInModal.js           # Check-in flow
-├── contexts/            # React contexts
-│   ├── AuthContext.js            # Auth state
-│   └── AppContext.js             # App state (venues, vibes)
-├── services/            # API services
-│   ├── vibeService.js            # Vibe CRUD
-│   ├── checkInService.js         # Check-in CRUD
-│   └── supabase.js               # Supabase client
-├── utils/               # Utilities
-│   ├── vibeHelpers.js            # Ratio calculations
-│   ├── priceMapping.js           # Price tier mapping
-│   └── timeHelpers.js            # Time formatting
-├── database-schema.md   # Complete DB documentation
-├── .env                 # Environment variables (not in git)
-└── app.config.js        # Expo configuration
+├── components/              # Reusable UI components
+│   ├── VenueCardLovable.js
+│   ├── VenueDetailsLovable.js
+│   └── CheckInModal.js
+├── contexts/                # Global state
+│   ├── AuthContext.js
+│   └── AppContext.js
+├── services/                # Supabase service layer
+│   ├── vibeService.js
+│   ├── checkInService.js
+│   └── supabase.js
+├── utils/                   # Helper utilities
+│   ├── vibeHelpers.js
+│   ├── priceMapping.js
+│   └── timeHelpers.js
+├── database-schema.md       # Database documentation
+├── .env                     # Environment variables (ignored)
+└── app.config.js            # Expo config
 🔧 Environment Variables
 Required
-Variable	Description	Where to Find
-SUPABASE_URL	Your Supabase project URL	Supabase Dashboard → Settings → API
-SUPABASE_ANON_KEY	Public anonymous key	Supabase Dashboard → Settings → API
+Variable	Description	Location
+SUPABASE_URL	Supabase project URL	Dashboard → Settings → API
+SUPABASE_ANON_KEY	Public anonymous key	Dashboard → Settings → API
 Optional
 Variable	Description
-SENTRY_DSN	Error tracking (production)
-NODE_ENV	Environment mode (auto-set)
-💡 Tip: The anon key is safe to use client-side. Supabase uses RLS to secure data.
+SENTRY_DSN	Error tracking
+NODE_ENV	Environment mode
+💡 The anon key is safe for client-side usage — RLS secures data.
 
 🎨 Design Principles
-UI/UX
-Dark mode first - Optimized for nightlife
-Quick actions - Check-in takes 5 seconds
-Visual hierarchy - Emoji-first for scannability
-Haptic feedback - Enhanced tactile experience
+UI / UX
+Dark mode first (nightlife-optimized)
+
+Fast actions (check-in in ~5 seconds)
+
+Emoji-first hierarchy for scannability
+
+Haptic feedback for tactile feel
+
 Data Philosophy
-Fresh over cached - Always show latest venue data
-Progressive disclosure - Quick check-ins vs. detailed vibes
-Social proof - Check-in counts, crowd levels
-Minimal friction - One question for check-ins
+Fresh over cached
+
+Progressive disclosure (quick check-ins → detailed vibes)
+
+Social proof (counts, crowd levels)
+
+Minimal friction
+
 🚧 Roadmap
 ✅ Completed
- Venue map and details
- Check-in system (bars & clubs)
- Basic vibe posting
- User authentication
- Points tracking
- RLS policies
+Venue map & details
+
+Check-in system
+
+Basic vibe posting
+
+Authentication
+
+Points system
+
+RLS policies
+
 🔄 In Progress
- Onboarding flow (4 questions)
- +5 points for posting vibes
- Leaderboards
+Onboarding flow (4 questions)
+
++5 points for vibes
+
+Leaderboards
+
 📋 Planned
- Personalized "For You" feed
- Push notifications (vibe reminders)
- Search and filters
- User profiles and social features
- Venue recommendations
+Personalized “For You” feed
+
+Push notifications
+
+Search & filters
+
+Social profiles
+
+Venue recommendations
+
 🛠️ Development
 Running Locally
-bash
-# Start Expo dev server
 npm start
-
-# Run on iOS simulator
 npm run ios
-
-# Run on Android emulator
 npm run android
 Debugging
-React Native Debugger for component inspection
-Supabase Dashboard for database queries
-Console logs in development mode
+React Native Debugger
+
+Supabase Dashboard
+
+Console logs (dev mode)
+
 Code Style
-Use functional components with hooks
-Follow existing naming conventions
-Keep components focused and modular
+Functional components + hooks
+
+Modular, focused components
+
+Consistent naming
+
 Document complex logic
-📚 Key Files to Know
-database-schema.md - Complete database documentation
-CheckInModal.js - Check-in flow (bars vs. clubs)
-VenueDetailsLovable.js - Venue details with live data
-vibeService.js - All vibe-related API calls
-checkInService.js - Check-in logic and points
+
 🐛 Troubleshooting
-"Failed to connect to Supabase"
-Check your .env file exists and has correct values
-Verify SUPABASE_URL and SUPABASE_ANON_KEY
-Restart the Expo dev server after changing .env
-"RLS policy violation"
-Ensure you're logged in
-Check RLS policies in Supabase Dashboard
-Verify user_id matches auth.uid()
-Check-in/Vibe not appearing
-Data is cached for performance - pull to refresh
-Check Supabase logs for errors
-Verify RLS policies allow INSERT
+“Failed to connect to Supabase”
+Check .env exists
+
+Verify SUPABASE_URL & SUPABASE_ANON_KEY
+
+Restart Expo after env changes
+
+“RLS policy violation”
+Ensure user is logged in
+
+Confirm auth.uid() matches user_id
+
+Check RLS policies allow action
+
+Check-ins / vibes not appearing
+Pull to refresh (cached data)
+
+Check Supabase logs
+
+Verify INSERT policies
+
 📄 License
-[Your License Here]
+TBD
 
 🤝 Contributing
-This is a personal project, but contributions are welcome! Please:
+This is a personal project, but contributions are welcome!
 
 Fork the repo
-Create a feature branch
-Test thoroughly
-Submit a PR with clear description
-Built with ❤️ for NYC nightlife
 
+Create a feature branch
+
+Test thoroughly
+
+Submit a PR with a clear description
