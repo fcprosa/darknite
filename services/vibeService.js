@@ -25,7 +25,7 @@ export async function getLatestVibe(venueKey, options = {}) {
   const since = new Date(Date.now() - CONSTANTS.VIBE_RECENCY_HOURS * 60 * 60 * 1000).toISOString();
 
   // Default fields used by most components
-  const defaultFields = "crowd, ratio, line, cover, drinks_price, drinks_price_tier, music, bar_type, created_at";
+  const defaultFields = "crowd, ratio, line, cover, drinks_price, drinks_price_tier, music, bar_type, age_range, created_at";
   const fields = selectFields || defaultFields;
 
   let lastError = null;
@@ -91,7 +91,7 @@ export async function getRecentVibes(venueKeyOrOptions, hours = 2) {
     try {
       const { data, error } = await supabase
         .from("vibes")
-        .select("venue_id, crowd, ratio, line, cover, drinks_price, drinks_price_tier, music, bar_type, created_at")
+        .select("venue_id, crowd, ratio, line, cover, drinks_price, drinks_price_tier, music, bar_type, age_range, created_at")
         .gte("created_at", since)
         .order("created_at", { ascending: false })
         .limit(limit);
@@ -147,7 +147,7 @@ export async function getHotNowVibes(hoursAgo = CONSTANTS.HOT_NOW_HOURS, limit =
   try {
     const { data, error } = await supabase
       .from("vibes")
-      .select("venue_id, crowd, ratio, line, cover, drinks_price, music, bar_type, created_at")
+      .select("venue_id, crowd, ratio, line, cover, drinks_price, music, bar_type, age_range, created_at")
       .gte("created_at", since)
       .order("created_at", { ascending: false })
       .limit(limit);
@@ -330,6 +330,11 @@ function validateVibeData(vibeData) {
     return { valid: false, error: 'Invalid drinks_price_tier value' };
   }
 
+  const validAgeRangeValues = ['18–25', '25–30', '30–35', '35+', 'Mixed'];
+  if (vibeData.age_range && !validAgeRangeValues.includes(vibeData.age_range)) {
+    return { valid: false, error: 'Invalid age_range value' };
+  }
+
   // Validate string length limits (prevent extremely long strings)
   const maxStringLength = 500;
   const stringFields = ['comment', 'stay_duration'];
@@ -366,7 +371,7 @@ export async function createVibe(vibeData) {
     }
 
     // Select the same fields that getLatestVibe returns for consistency
-    const defaultFields = "venue_id, crowd, ratio, line, cover, drinks_price, drinks_price_tier, music, bar_type, created_at";
+    const defaultFields = "venue_id, crowd, ratio, line, cover, drinks_price, drinks_price_tier, music, bar_type, age_range, created_at";
     const { data, error } = await supabase
       .from("vibes")
       .insert([vibeData])

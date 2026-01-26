@@ -472,7 +472,8 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
   const [bartenderVibe, setBartenderVibe] = useState(null); // For bars only, optional
   const [stayDuration, setStayDuration] = useState(null);
   const [selectedTags, setSelectedTags] = useState([]);
-  const [showExtras, setShowExtras] = useState(false);
+  const [ageRange, setAgeRange] = useState(null); // Optional for both bars and clubs
+  const [showExtras, setShowExtras] = useState(true); // Always expanded by default
   const [submitting, setSubmitting] = useState(false);
   const [venueType, setVenueType] = useState(null);
   const [venueTypeLoading, setVenueTypeLoading] = useState(true);
@@ -627,7 +628,8 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
     setBartenderVibe(null);
     setStayDuration(null);
     setSelectedTags([]);
-    setShowExtras(false);
+    setAgeRange(null);
+    setShowExtras(true); // Keep extras expanded
     setSubmitting(false);
     hasSubmittedRef.current = false; // Reset submission flag
     setShowToast(false); // Hide any visible toast
@@ -656,6 +658,7 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
     "Mixed",
   ];
   const stayDurationOptions = ["15 min", "30 min", "1 hour", "2+ hours"];
+  const ageRangeOptions = ["18–25", "25–30", "30–35", "35+", "Mixed"];
   const tagOptions = [
     "Good for groups",
     "Good for couples",
@@ -871,6 +874,10 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
         if (bartenderVibe) {
           vibeData.bartender_vibe = bartenderVibe;
         }
+        // Optional age_range for bars (from extras) - only include if set
+        if (ageRange) {
+          vibeData.age_range = ageRange;
+        }
         // Ensure club-only fields are null for bars
         vibeData.line = null;
         vibeData.cover = null;
@@ -892,6 +899,10 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
         // Club-specific optional extras
         if (stayDuration) vibeData.stay_duration = stayDuration;
         if (selectedTags.length > 0) vibeData.tags = selectedTags;
+        // Optional age_range for clubs (from extras) - only include if set
+        if (ageRange) {
+          vibeData.age_range = ageRange;
+        }
         // Ensure bar-only fields are null for clubs
         vibeData.bar_type = null;
         vibeData.drinks_price = null;
@@ -1091,22 +1102,14 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
         <View style={styles.confirmationContent}>
           <Text style={styles.confirmationTitle}>You're done ✅</Text>
 
-          {/* Extras Accordion */}
+          {/* Extras Section - Always visible */}
           <View style={styles.extrasAccordion}>
-            <TouchableOpacity
-              style={styles.extrasAccordionHeader}
-              onPress={() => setShowExtras(!showExtras)}
-              activeOpacity={0.7}
-            >
+            <View style={styles.extrasAccordionHeader}>
               <Text style={styles.extrasAccordionTitle}>
-                Add extras (optional)
+                Extras (optional)
               </Text>
-              <Text style={styles.extrasAccordionIcon}>
-                {showExtras ? "⌄" : "›"}
-              </Text>
-            </TouchableOpacity>
-            {showExtras && (
-              <View style={styles.extrasAccordionContent}>
+            </View>
+            <View style={styles.extrasAccordionContent}>
                 {isBar ? (
                   // Bar extras: ratio (optional) and bartender_vibe (optional)
                   <>
@@ -1163,6 +1166,37 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
                               style={[
                                 styles.extrasChipText,
                                 bartenderVibe === opt && styles.extrasChipTextSelected,
+                              ]}
+                            >
+                              {opt}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
+
+                    {/* Age Range (optional for both bars and clubs) */}
+                    <View style={styles.extrasItem}>
+                      <Text style={styles.extrasLabel}>Age range</Text>
+                      <View style={styles.extrasOptionsRow}>
+                        {ageRangeOptions.map((opt) => (
+                          <TouchableOpacity
+                            key={opt}
+                            style={[
+                              styles.extrasChip,
+                              ageRange === opt && styles.extrasChipSelected,
+                            ]}
+                            onPress={() => {
+                              setAgeRange(ageRange === opt ? null : opt);
+                              try {
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              } catch (e) {}
+                            }}
+                          >
+                            <Text
+                              style={[
+                                styles.extrasChipText,
+                                ageRange === opt && styles.extrasChipTextSelected,
                               ]}
                             >
                               {opt}
@@ -1231,10 +1265,40 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
                         ))}
                       </View>
                     </View>
+
+                    {/* Age Range (optional for both bars and clubs) */}
+                    <View style={styles.extrasItem}>
+                      <Text style={styles.extrasLabel}>Age range</Text>
+                      <View style={styles.extrasOptionsRow}>
+                        {ageRangeOptions.map((opt) => (
+                          <TouchableOpacity
+                            key={opt}
+                            style={[
+                              styles.extrasChip,
+                              ageRange === opt && styles.extrasChipSelected,
+                            ]}
+                            onPress={() => {
+                              setAgeRange(ageRange === opt ? null : opt);
+                              try {
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              } catch (e) {}
+                            }}
+                          >
+                            <Text
+                              style={[
+                                styles.extrasChipText,
+                                ageRange === opt && styles.extrasChipTextSelected,
+                              ]}
+                            >
+                              {opt}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
                   </>
                 )}
-              </View>
-            )}
+            </View>
           </View>
         </View>
       );
