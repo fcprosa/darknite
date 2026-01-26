@@ -9,42 +9,56 @@ Node.js 18+ and npm
 Expo CLI: npm install -g expo-cli
 Supabase account with a project set up
 Installation
-Clone and install dependencies:
-bash
-   git clone <your-repo>
-   cd darknite
-   npm install
-Set up environment variables: Create a .env file in the root directory:
-env
-   SUPABASE_URL=https://your-project.supabase.co
-   SUPABASE_ANON_KEY=your-anon-key-here
-📍 Get these from your Supabase project: Settings → API
+1. Clone and install dependencies:
 
+bash
+git clone <your-repo>
+cd darknite
+npm install
+2. Set up environment variables:
+
+Create a .env file in the root directory:
+
+env
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=your-anon-key-here
+📍 Get these from your Supabase project: Settings → API
 ⚠️ The .env file is in .gitignore - never commit it!
 
-Database setup: Your database should already be set up. If starting fresh, refer to database-schema.md for the complete schema. Key tables: venues, vibes, check_ins, user_profiles, user_points
-Run the app:
+3. Database setup:
+
+Your database should already be set up. If starting fresh, refer to database-schema.md for the complete schema.
+
+Key tables: venues, vibes, check_ins, user_profiles, user_points
+
+4. Run the app:
+
 bash
-   npm start
+npm start
 Scan the QR code with Expo Go (iOS/Android) or press i for iOS simulator / a for Android emulator.
 
 📱 Features
 🎯 Core Features
 Quick Check-ins (+1 point)
+
 Clubs: Report line wait time
 Bars: Report crowd level
 Detailed Vibes (+5 points, coming soon)
+
 Share crowd, music, pricing, ratio, and more
 Different fields for bars vs. clubs
 Live Venue Intel
+
 See latest check-ins and vibes
 Real-time crowd tracking
 Line wait estimates for clubs
 Gamification
+
 Earn points for contributions
 Leaderboards (coming soon)
 Track your check-ins and vibes
 Personalized For You Feed (coming soon)
+
 Based on your preferred days, neighborhoods, and music
 Smart recommendations
 🏗️ Key Concepts
