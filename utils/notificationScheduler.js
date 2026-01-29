@@ -117,20 +117,57 @@ function getNotificationTime(preferredScene) {
 }
 
 /**
+ * Get notification title based on preferred scene
+ * @param {string} preferredScene - 'bars', 'clubs', or 'both'
+ * @returns {string} Notification title
+ */
+function getNotificationTitle(preferredScene) {
+  const titles = {
+    bars: [
+      "Time to hit the bars! 🍻",
+      "Your night starts now 🌙",
+      "Bar crawl time? 🍸",
+    ],
+    clubs: [
+      "The night is calling 🌃",
+      "Ready to dance? 💃",
+      "Club time! 🎉",
+    ],
+    both: [
+      "Tonight's the night! ✨",
+      "What's the move? 🌙",
+      "Your night awaits 🔥",
+    ],
+  };
+  const options = titles[preferredScene] || titles.both;
+  return options[Math.floor(Math.random() * options.length)];
+}
+
+/**
  * Get notification message based on preferred scene
  * @param {string} preferredScene - 'bars', 'clubs', or 'both'
  * @returns {string} Notification message
  */
 function getNotificationMessage(preferredScene) {
-  switch (preferredScene) {
-    case "bars":
-      return "Where you starting? Drop a vibe.";
-    case "clubs":
-      return "Tonight's the night. Drop the vibe 🕺";
-    case "both":
-    default:
-      return "What's the move tonight? Drop a vibe.";
-  }
+  const messages = {
+    bars: [
+      "Check what's popping before you head out",
+      "See which spots are buzzing right now",
+      "Drop a vibe and help others find the party",
+    ],
+    clubs: [
+      "Check the line situation before you go",
+      "See what's hot tonight and skip the dead spots",
+      "The dance floor is waiting – check the vibe first",
+    ],
+    both: [
+      "See what's live in your area right now",
+      "Check the vibes before you head out",
+      "Find out where everyone's at tonight",
+    ],
+  };
+  const options = messages[preferredScene] || messages.both;
+  return options[Math.floor(Math.random() * options.length)];
 }
 
 /**
@@ -201,11 +238,17 @@ export async function scheduleWeeklyReminders({ preferredScene, goingOutDays, us
 
       // 3. Schedule with WEEKLY trigger ONLY: { weekday, hour, minute, repeats: true }
       // NO trigger: null, NO seconds-based triggers, NO immediate triggers
+      const title = getNotificationTitle(preferredScene);
       const notificationId = await Notifications.scheduleNotificationAsync({
         content: {
-          title: "DarkNite",
+          title,
           body: message,
           sound: true,
+          data: {
+            type: "weekly_reminder",
+            preferredScene,
+            dayCode,
+          },
         },
         trigger: {
           weekday,
@@ -236,6 +279,79 @@ export async function scheduleWeeklyReminders({ preferredScene, goingOutDays, us
       }
     }
     throw error;
+  }
+}
+
+/**
+ * Get vibe reminder title and message
+ * @param {string} venueName - Venue name
+ * @returns {{title: string, body: string}} Title and body for notification
+ */
+function getVibeReminderContent(venueName) {
+  const options = [
+    {
+      title: "How's the vibe? 🎉",
+      body: `You're at ${venueName} – let others know what's up!`,
+    },
+    {
+      title: "Quick update? ✨",
+      body: `Share the vibe at ${venueName} and earn points!`,
+    },
+    {
+      title: "Still at ${venueName}? 🔥",
+      body: "Drop a vibe and help others find the party!",
+    },
+    {
+      title: "Vibe check! 📍",
+      body: `How's ${venueName} right now? Share with the community.`,
+    },
+  ];
+  return options[Math.floor(Math.random() * options.length)];
+}
+
+/**
+ * Schedule a one-time vibe reminder notification 15-20 minutes after check-in
+ * @param {Object} options - Options object
+ * @param {string} options.venueId - Venue ID
+ * @param {string} options.venueName - Venue name
+ * @param {string} options.checkInTime - ISO string of check-in time
+ * @returns {Promise<string|null>} Notification ID or null if failed
+ */
+export async function scheduleVibeReminder({ venueId, venueName, checkInTime }) {
+  try {
+    const checkInDate = new Date(checkInTime);
+    // Schedule 15-20 minutes after check-in (randomized to avoid spam)
+    const delayMinutes = 15 + Math.floor(Math.random() * 6); // 15-20 minutes
+    const triggerTime = new Date(checkInDate.getTime() + delayMinutes * 60 * 1000);
+
+    // Don't schedule if trigger time is in the past
+    if (triggerTime <= new Date()) {
+      console.log("[NotificationScheduler] Trigger time is in the past, skipping");
+      return null;
+    }
+
+    const { title, body } = getVibeReminderContent(venueName);
+    const notificationId = await Notifications.scheduleNotificationAsync({
+      content: {
+        title,
+        body,
+        sound: true,
+        data: {
+          type: 'vibe_reminder',
+          venueId,
+          venueName
+        },
+      },
+      trigger: {
+        date: triggerTime,
+      },
+    });
+
+    console.log(`[NotificationScheduler] Scheduled vibe reminder for ${venueName} at ${triggerTime.toISOString()}`);
+    return notificationId;
+  } catch (error) {
+    console.error("[NotificationScheduler] Error scheduling vibe reminder:", error);
+    return null;
   }
 }
 

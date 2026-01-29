@@ -78,7 +78,7 @@ export async function fetchLatestVibe(venueKey, options = {}) {
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
   // Default fields used by most components
-  const defaultFields = "crowd, ratio, line, cover, drinks_price, drinks_price_tier, music, bar_type, created_at";
+  const defaultFields = "crowd, ratio, line, cover, drinks_price_tier, music, bar_type, created_at";
   
   const fields = selectFields || defaultFields;
 
@@ -143,7 +143,7 @@ export async function fetchRecentVibes(venueKey, hours = 2) {
 
   const { data, error } = await supabase
     .from("vibes")
-    .select("crowd, ratio, line, cover, drinks_price, drinks_price_tier, music, bar_type, created_at")
+    .select("crowd, ratio, line, cover, drinks_price_tier, music, bar_type, created_at")
     .eq("venue_id", venueKey)
     .gte("created_at", since)
     .order("created_at", { ascending: false })

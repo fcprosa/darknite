@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
+import { Platform } from "react-native";
 import Constants from "expo-constants";
+import * as AppleAuthentication from "expo-apple-authentication";
 import { supabase } from "../utils/supabase";
 
 // Detect if running in Expo Go
@@ -183,7 +185,7 @@ export function AuthProvider({ children }) {
 
       // Debug: Log session immediately after sign in
       console.log("[Auth] signIn result session:", !!data?.session);
-      
+
       // Verify session was created
       const { data: sessionData } = await supabase.auth.getSession();
       console.log("[Auth] getSession after signIn:", !!sessionData?.session);
@@ -191,6 +193,92 @@ export function AuthProvider({ children }) {
       return { data, error: null };
     } catch (error) {
       console.error("[Auth] Sign in error:", error);
+      return { data: null, error };
+    }
+  };
+
+  /**
+   * Sign in with Apple
+   * Uses expo-apple-authentication to get credentials, then signs in via Supabase
+   */
+  const signInWithApple = async () => {
+    try {
+      // Check if Apple Sign-In is available
+      const isAvailable = await AppleAuthentication.isAvailableAsync();
+      if (!isAvailable) {
+        throw new Error("Apple Sign-In is not available on this device");
+      }
+
+      // Request Apple authentication
+      const credential = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+      });
+
+      console.log("[Auth] Apple credential received");
+
+      // Sign in to Supabase with Apple identity token
+      const { data, error } = await supabase.auth.signInWithIdToken({
+        provider: "apple",
+        token: credential.identityToken,
+      });
+
+      if (error) throw error;
+
+      console.log("[Auth] Apple sign-in successful:", !!data?.session);
+
+      // Create profile if this is a new user
+      if (data.user && data.session) {
+        // Check if profile exists
+        const { data: existingProfile } = await supabase
+          .from("user_profiles")
+          .select("id, username")
+          .eq("id", data.user.id)
+          .maybeSingle();
+
+        if (!existingProfile) {
+          // Create profile with Apple-provided name or generate username
+          const firstName = credential.fullName?.givenName;
+          const lastName = credential.fullName?.familyName;
+          let username = null;
+
+          if (firstName) {
+            // Generate username from Apple name
+            username = `${firstName}${lastName ? lastName.charAt(0) : ""}`.toLowerCase().replace(/[^a-z0-9]/g, "");
+            // Add random suffix to ensure uniqueness
+            username = `${username}${Math.floor(Math.random() * 1000)}`;
+          } else {
+            // Fallback: generate random username
+            username = `user${Date.now().toString().slice(-8)}`;
+          }
+
+          const { error: profileError } = await supabase
+            .from("user_profiles")
+            .insert({
+              id: data.user.id,
+              username: username,
+            });
+
+          if (profileError) {
+            console.error("[Auth] Apple profile creation error:", profileError);
+            // Don't throw - user is already signed in, they can set username later
+          } else {
+            // New user - send to profile setup
+            setPendingNav({ name: "ProfileSetup" });
+          }
+        }
+      }
+
+      return { data, error: null };
+    } catch (error) {
+      // Handle user cancellation
+      if (error.code === "ERR_REQUEST_CANCELED") {
+        console.log("[Auth] Apple sign-in canceled by user");
+        return { data: null, error: null }; // Not an error, just cancelled
+      }
+      console.error("[Auth] Apple sign-in error:", error);
       return { data: null, error };
     }
   };
@@ -259,6 +347,7 @@ export function AuthProvider({ children }) {
     isAuthenticated: !!session,
     signUp,
     signIn,
+    signInWithApple,
     signOut,
     deleteAccount,
     requireAuth,

@@ -1,34 +1,28 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from "react-native";
+import { View, Text, StyleSheet, FlatList, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import VenueCardLovable from "./VenueCardLovable";
-import { getLatestVibe } from "../services/vibeService";
 import { getVenueKeySafe } from "../utils/venueHelpers";
 import { getVenuesByTypeAndNeighborhood } from "../services/venueService";
+import { VenueCardSeparator } from "./VenueCardSeparator";
+import { useAppContext } from "../contexts/AppContext";
+import { SCREEN_PADDING_HORIZONTAL, SCREEN_PADDING_TOP } from "../constants/spacing";
 
-
-function mapRatioToPercent(ratioLabel) {
-  switch (ratioLabel) {
-    case "Mostly guys":
-      return { guys: 70, girls: 30 };
-    case "Balanced":
-      return { guys: 50, girls: 50 };
-    case "Mostly girls":
-      return { guys: 30, girls: 70 };
-    default:
-      return { guys: 50, girls: 50 };
-  }
-}
+// Constants for layout stability
+const TAB_BAR_HEIGHT = 60;
+const BOTTOM_PADDING_EXTRA = 40;
 
 export default function NeighborhoodVenuesScreen({ navigation, route }) {
   const params = route?.params ?? {};
   const neighborhood = params.neighborhood || "Unknown";
   const selectedType = params.selectedType || "Clubs";
   
+  const { latestVibesByVenueId } = useAppContext();
+  const insets = useSafeAreaInsets();
   const [venues, setVenues] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [ratios, setRatios] = useState({});
-  const [latestVibes, setLatestVibes] = useState({});
+  const bottomPadding = TAB_BAR_HEIGHT + BOTTOM_PADDING_EXTRA + insets.bottom;
 
   useEffect(() => {
     async function loadVenues() {
@@ -38,29 +32,8 @@ export default function NeighborhoodVenuesScreen({ navigation, route }) {
       // Use service to fetch venues by type and neighborhood
       const fetchedVenues = await getVenuesByTypeAndNeighborhood(venueTypeFilter, neighborhood);
 
-      // Fetch all vibes in parallel BEFORE setting state
-      const vibePromises = fetchedVenues.map(venue => 
-        getLatestVibe(getVenueKeySafe(venue))
-      );
-      const vibeResults = await Promise.all(vibePromises);
-
-      const nextRatios = {};
-      const nextVibes = {};
-
-      vibeResults.forEach((vibe, index) => {
-        if (vibe) {
-          const key = getVenueKeySafe(fetchedVenues[index]);
-          if (key) {
-            nextVibes[key] = vibe;
-            if (vibe.ratio) nextRatios[key] = mapRatioToPercent(vibe.ratio);
-          }
-        }
-      });
-
-      // Set all state together at the end
+      // Set venues - vibes will be loaded via AppContext's refreshLatestVibes (batch fetch)
       setVenues(fetchedVenues);
-      setRatios(nextRatios);
-      setLatestVibes(nextVibes);
       setLoading(false);
     }
 
@@ -70,21 +43,39 @@ export default function NeighborhoodVenuesScreen({ navigation, route }) {
   const renderVenueCard = (item) => {
     const key = getVenueKeySafe(item);
     if (!key) return null; // Skip venues without valid IDs
-    const liveRatio = ratios[key];
-    const guys = liveRatio?.guys ?? item.guys;
-    const girls = liveRatio?.girls ?? item.girls;
-    const latestVibe = latestVibes[key] || null;
+    const latestVibe = latestVibesByVenueId?.[key] ?? null;
 
     return (
       <VenueCardLovable
-        key={item.id}
         venue={item}
-        guys={guys}
-        girls={girls}
         onPress={() => {
           // Navigate to venue details - use same pattern as Home flow
           console.log("[NeighborhoodVenues] Press venue:", item.id, item.name);
           navigation.navigate("VenueDetails", { venueId: item.id, venue: item });
+        }}
+        onPostVibe={() => {
+          // Navigate to PostVibe screen via parent tab navigator
+          const tabNav = navigation.getParent?.();
+          if (tabNav) {
+            // Navigate to HomeTab first, then to PostVibe
+            tabNav.navigate("HomeTab", {
+              screen: "PostVibe",
+              params: {
+                venueId: item.id,
+                venueName: item.name,
+                venueType: item.venue_type,
+                neighborhood: item.neighborhood,
+              },
+            });
+          } else {
+            // Fallback: try direct navigation
+            navigation.navigate("PostVibe", {
+              venueId: item.id,
+              venueName: item.name,
+              venueType: item.venue_type,
+              neighborhood: item.neighborhood,
+            });
+          }
         }}
         latestVibe={latestVibe}
       />
@@ -105,23 +96,32 @@ export default function NeighborhoodVenuesScreen({ navigation, route }) {
         <View style={styles.headerRight} />
       </View>
 
-      {/* Venues List */}
+      {/* Venues List - Using FlatList like HomeScreen for consistent layout */}
       {loading ? (
         <View style={styles.loadingContainer}>
           <Text style={styles.loadingText}>Loading venues…</Text>
         </View>
-      ) : venues.length > 0 ? (
-        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-          {venues.map((venue) => (
-            <View key={venue.id} style={styles.venueCardWrapper}>
-              {renderVenueCard(venue)}
-            </View>
-          ))}
-        </ScrollView>
       ) : (
-        <View style={styles.emptyContainer}>
-          <Text style={styles.emptyText}>No venues found in {neighborhood}</Text>
-        </View>
+        <FlatList
+          style={{ flex: 1 }}
+          data={venues}
+          keyExtractor={(item, index) => `venue-${item.id || item.name || index}`}
+          extraData={latestVibesByVenueId} // Force re-render when vibes update
+          removeClippedSubviews={false} // Prevent layout issues
+          windowSize={10} // Optimize rendering
+          maxToRenderPerBatch={10} // Batch rendering
+          updateCellsBatchingPeriod={50} // Update frequency
+          initialNumToRender={5} // Initial render count
+          contentContainerStyle={[styles.listContent, { paddingBottom: bottomPadding }]}
+          ItemSeparatorComponent={VenueCardSeparator}
+          showsVerticalScrollIndicator={false}
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>No venues found in {neighborhood}</Text>
+            </View>
+          }
+          renderItem={({ item }) => renderVenueCard(item)}
+        />
       )}
     </View>
   );
@@ -131,6 +131,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#050013",
+    // Ensure container fills available space properly
   },
   header: {
     flexDirection: "row",
@@ -162,18 +163,13 @@ const styles = StyleSheet.create({
   headerRight: {
     width: 36,
   },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: 16,
-    paddingBottom: 32,
-  },
-  venueCardWrapper: {
-    marginBottom: 6,
+  listContent: {
+    paddingHorizontal: SCREEN_PADDING_HORIZONTAL,
+    paddingTop: SCREEN_PADDING_TOP,
+    flexGrow: 0, // Prevent content from stretching when there are few items
   },
   loadingContainer: {
-    flex: 1,
+    // REMOVED flex: 1 - was causing layout issues during state transition
     justifyContent: "center",
     alignItems: "center",
     paddingVertical: 48,
@@ -183,7 +179,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   emptyContainer: {
-    flex: 1,
+    // REMOVED flex: 1 - was causing layout issues
     justifyContent: "center",
     alignItems: "center",
     paddingVertical: 48,

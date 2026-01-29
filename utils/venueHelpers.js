@@ -72,3 +72,35 @@ export function getVenueKeySafe(venue) {
   }
 }
 
+/**
+ * Infer venue type from venue name when venue_type is missing
+ * @param {Object} venue - Venue object with name property
+ * @returns {string} Inferred venue type: "bar" or "club"
+ */
+export function inferVenueType(venue) {
+  if (!venue?.name) {
+    return "club"; // Default to club
+  }
+
+  const name = venue.name.toLowerCase();
+
+  // Bar indicators
+  const barKeywords = ["bar", "pub", "tavern", "taproom", "brewery", "wine", "beer", "cocktail", "speakeasy", "rooftop"];
+  for (const keyword of barKeywords) {
+    if (name.includes(keyword)) {
+      return "bar";
+    }
+  }
+
+  // Club indicators
+  const clubKeywords = ["club", "nightclub", "lounge", "disco", "dance"];
+  for (const keyword of clubKeywords) {
+    if (name.includes(keyword)) {
+      return "club";
+    }
+  }
+
+  // Default to club (more common in nightlife apps)
+  return "club";
+}
+

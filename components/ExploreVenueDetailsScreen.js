@@ -14,10 +14,18 @@ export default function ExploreVenueDetailsScreen({ selectedVenueFromState, onSe
 
   const venueFromParams = route?.params?.venue;
   const venueIdFromParams = route?.params?.venueId;
-  const venue = selectedVenueFromState || venueFromParams;
+  // Prefer route params (fresh) over state (potentially stale from previous navigation)
+  const venue = venueFromParams || selectedVenueFromState;
 
   const [fetchedVenue, setFetchedVenue] = useState(null);
   const [fetchingVenue, setFetchingVenue] = useState(false);
+
+  // Sync state when navigating with route params (ensures PostVibe sheet gets correct venue)
+  useEffect(() => {
+    if (venueFromParams && venueFromParams.id !== selectedVenueFromState?.id) {
+      onSetSelectedVenue(venueFromParams);
+    }
+  }, [venueFromParams, selectedVenueFromState?.id, onSetSelectedVenue]);
 
   useEffect(() => {
     if (!venue && venueIdFromParams && !fetchingVenue) {

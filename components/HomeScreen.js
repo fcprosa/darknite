@@ -5,18 +5,29 @@ import {
   StyleSheet,
   FlatList,
   TouchableOpacity,
+  Pressable,
   Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import VenueCardLovable from "./VenueCardLovable";
+import EmptyState, { EmptyStates } from "./EmptyState";
 import { useAuth } from "../contexts/AuthContext";
 import { useAppContext } from "../contexts/AppContext";
 import { getRecentVibes } from "../services/vibeService";
 import { getVenuesByIds } from "../services/venueService";
 import { getHotnessScore } from "../utils/scoreHelpers";
 import * as CONSTANTS from "../constants";
+import { VenueCardSeparator } from "./VenueCardSeparator";
 import { getVenueKeySafe } from "../utils/venueHelpers";
+import { CARD_GAP, SCREEN_PADDING_HORIZONTAL, SCREEN_PADDING_TOP, SCREEN_PADDING_BOTTOM } from "../constants/spacing";
+
+// Constants for floating pill button
+const FLOATING_PILL_HEIGHT = 54; // Compact pill height (52-56px range)
+const TAB_BAR_HEIGHT = 60; // Tab bar height from MainTabsNavigator
+const PILL_BOTTOM_OFFSET = 16; // Space above tab bar
+const PILL_PADDING_HORIZONTAL = 20; // Horizontal padding for pill
 
 // Helper function: map ratio label to percentages
 function mapRatioToPercent(ratioLabel) {
@@ -35,11 +46,22 @@ function mapRatioToPercent(ratioLabel) {
 
 function HomeScreen({ navigation, tabNavigation, venues, onOpenVenue, onOpenSheet, refreshKey, selectedVenue, setSelectedVenue }) {
   const { setShowAuthModal, isAuthenticated } = useAuth();
-  const { latestVibesByVenueId, upsertLatestVibe } = useAppContext();
-  const isLoggedIn = isAuthenticated;
+  const { latestVibesByVenueId, upsertLatestVibe, upsertLatestBarCrowd, upsertLatestLineWait } = useAppContext();  const isLoggedIn = isAuthenticated;
+  const insets = useSafeAreaInsets();
   const [feedMode, setFeedMode] = useState("forYou"); // "forYou" | "hotNow"
   const [hotNowVenues, setHotNowVenues] = useState([]); // Venues with recent vibes
   const [hotNowLoading, setHotNowLoading] = useState(false);
+
+  // Calculate floating pill button position (above tab bar)
+  const floatingPillBottom = TAB_BAR_HEIGHT + PILL_BOTTOM_OFFSET + insets.bottom;
+  
+  // Calculate content padding to clear:
+  // - Floating pill button height
+  // - Space above tab bar
+  // - Tab bar height
+  // - Safe area bottom
+  // - Extra breathing room
+  const totalBottomPadding = FLOATING_PILL_HEIGHT + PILL_BOTTOM_OFFSET + TAB_BAR_HEIGHT + insets.bottom + 20;
 
   // Load Hot Now venues (venues with vibes in last 30 minutes)
   useEffect(() => {
@@ -264,13 +286,33 @@ function HomeScreen({ navigation, tabNavigation, venues, onOpenVenue, onOpenShee
         <FlatList
           data={sortedVenues}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
+          extraData={latestVibesByVenueId} // Force re-render when vibes update
+          removeClippedSubviews={false} // Prevent layout issues
+          windowSize={10} // Optimize rendering
+          maxToRenderPerBatch={10} // Batch rendering
+          updateCellsBatchingPeriod={50} // Update frequency
+          initialNumToRender={5} // Initial render count
+          contentContainerStyle={{ 
+            paddingHorizontal: SCREEN_PADDING_HORIZONTAL, 
+            paddingTop: SCREEN_PADDING_TOP, 
+            paddingBottom: totalBottomPadding, // CRITICAL: Ensures content clears floating button
+            flexGrow: 0, // Prevent content from stretching when there are few items
+          }}
+          ItemSeparatorComponent={VenueCardSeparator}
           ListEmptyComponent={
             feedMode === "hotNow" ? (
-              <View style={styles.emptyContainer}>
-                <Text style={styles.emptyText}>Nothing hot right now</Text>
-              </View>
-            ) : null
+              <EmptyState
+                {...EmptyStates.nothingHot}
+                variant="compact"
+                actionLabel="Drop a Vibe"
+                onAction={handleFABPress}
+              />
+            ) : (
+              <EmptyState
+                {...EmptyStates.noVenues}
+                variant="compact"
+              />
+            )
           }
           renderItem={({ item }) => {
             const venueData = getVenueData(item);
@@ -278,6 +320,27 @@ function HomeScreen({ navigation, tabNavigation, venues, onOpenVenue, onOpenShee
               <VenueCardLovable
                 venue={item}
                 onPress={() => onOpenVenue(item)}
+                onPostVibe={() => {
+                  // Check authentication first
+                  if (!isAuthenticated) {
+                    setShowAuthModal(true);
+                    return;
+                  }
+                  
+                  // Use sheet UI if onOpenSheet is provided (same as Venue Details)
+                  if (onOpenSheet) {
+                    setSelectedVenue(item);
+                    onOpenSheet(item);
+                  } else {
+                    // Fallback to full-screen navigation if sheet not available
+                    navigation.navigate("PostVibe", {
+                      venueId: item.id,
+                      venueName: item.name,
+                      venueType: item.venue_type,
+                      neighborhood: item.neighborhood,
+                    });
+                  }
+                }}
                 latestVibe={venueData.latestVibe}
               />
             );
@@ -285,14 +348,15 @@ function HomeScreen({ navigation, tabNavigation, venues, onOpenVenue, onOpenShee
         />
       )}
 
-      {/* Floating Action Button (FAB) */}
-      <TouchableOpacity
-        style={styles.fab}
+      {/* Floating Pill Button - Gen-Z style compact FAB */}
+      <Pressable
+        style={[styles.floatingCta, { bottom: floatingPillBottom }]}
         onPress={handleFABPress}
-        activeOpacity={0.8}
+        android_ripple={{ color: "rgba(255,255,255,0.2)" }}
       >
-        <Text style={styles.fabText}>+ Post Vibe</Text>
-      </TouchableOpacity>
+        <Text style={styles.floatingCtaIcon}>+</Text>
+        <Text style={styles.floatingCtaText}>Post Vibe</Text>
+      </Pressable>
     </View>
   );
 }
@@ -401,27 +465,38 @@ const styles = StyleSheet.create({
     color: "#9CA3AF",
     fontSize: 14,
   },
-  fab: {
+  floatingCta: {
     position: "absolute",
-    bottom: CONSTANTS.FAB_BOTTOM_OFFSET,
     right: 16,
     backgroundColor: "#A855F7",
     borderRadius: 28,
     paddingVertical: 14,
-    paddingHorizontal: 20,
-    shadowColor: "#A855F7",
-    shadowOpacity: 0.8,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 8,
+    paddingHorizontal: PILL_PADDING_HORIZONTAL,
+    height: FLOATING_PILL_HEIGHT,
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    zIndex: 9999,
+    shadowColor: "#A855F7",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
+    elevation: 12,
+    borderWidth: 1,
+    borderColor: "rgba(168,85,247,0.4)",
   },
-  fabText: {
-    color: "#F9FAFB",
+  floatingCtaIcon: {
+    color: "#FFFFFF",
+    fontSize: 20,
+    fontWeight: "800",
+    lineHeight: 20,
+  },
+  floatingCtaText: {
+    color: "#FFFFFF",
     fontSize: 15,
     fontWeight: "700",
-    marginLeft: 4,
+    letterSpacing: 0.3,
   },
 });
 

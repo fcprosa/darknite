@@ -87,7 +87,7 @@ export async function getVenuesByType(venueType) {
   try {
     const { data, error } = await supabase
       .from("venues")
-      .select("id, name, neighborhood, default_guys, default_girls, venue_type")
+      .select("id, name, neighborhood, default_guys, default_girls, venue_type, address, city")
       .eq("venue_type", venueType)
       .order("name", { ascending: true });
 

@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { getAllVenues } from "../services/venueService";
 import { getLatestVibesBatch } from "../services/vibeService";
+import { getLatestBarCrowdCheckIn, getLatestLineWait } from "../services/checkInService";
 import { getVenueKeySafe } from "../utils/venueHelpers";
 
 const AppContext = React.createContext(null);
@@ -10,17 +11,36 @@ export function AppProvider({ children }) {
   const [loadingVenues, setLoadingVenues] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
   const [guestMode, setGuestMode] = useState(false);
-  const [latestVibesByVenueId, setLatestVibesByVenueId] = useState({}); // { [venueId]: vibe }
+
+  // Vibes (Post Vibe data)
+  const [latestVibesByVenueId, setLatestVibesByVenueId] = useState({});
   const [latestVibesLoaded, setLatestVibesLoaded] = useState(false);
 
-  // Refresh latest vibes for all venues (batch request to avoid N+1 problem)
+  // Check-ins (I'm here data)
+  const [latestBarCrowdByVenueId, setLatestBarCrowdByVenueId] = useState({});
+  const [latestLineWaitByVenueId, setLatestLineWaitByVenueId] = useState({});
+
+  // Refs to prevent race conditions in refresh functions
+  const isRefreshingVibesRef = useRef(false);
+  const isRefreshingCheckInsRef = useRef(false);
+  const refreshVibesAbortRef = useRef(null);
+
+  // Refresh latest vibes for all venues (with race condition protection)
   const refreshLatestVibes = useCallback(async () => {
-    if (venues.length === 0) {
+    if (venues.length === 0) return;
+
+    // Prevent concurrent refreshes - if already refreshing, skip
+    if (isRefreshingVibesRef.current) {
+      console.log("[AppContext] refreshLatestVibes already in progress, skipping");
       return;
     }
 
+    // Create abort controller for this refresh
+    const abortController = new AbortController();
+    refreshVibesAbortRef.current = abortController;
+    isRefreshingVibesRef.current = true;
+
     try {
-      // Extract all valid venue IDs
       const venueIds = venues
         .map(venue => getVenueKeySafe(venue))
         .filter(id => id !== null && id !== undefined);
@@ -30,15 +50,69 @@ export function AppProvider({ children }) {
         return;
       }
 
-      // Fetch all latest vibes in a single batch request
       const vibesMap = await getLatestVibesBatch(venueIds);
-      
-      setLatestVibesByVenueId(vibesMap);
-      setLatestVibesLoaded(true);
+
+      // Only update state if this refresh wasn't aborted
+      if (!abortController.signal.aborted) {
+        setLatestVibesByVenueId(vibesMap);
+        setLatestVibesLoaded(true);
+      }
     } catch (error) {
-      console.error("[AppContext] Error refreshing latest vibes:", error);
-      // Still set loaded to true to prevent infinite retries
-      setLatestVibesLoaded(true);
+      if (!abortController.signal.aborted) {
+        console.error("[AppContext] Error refreshing latest vibes:", error);
+        setLatestVibesLoaded(true);
+      }
+    } finally {
+      isRefreshingVibesRef.current = false;
+    }
+  }, [venues]);
+
+  // Refresh latest check-ins for all venues (with race condition protection)
+  const refreshLatestCheckIns = useCallback(async () => {
+    if (venues.length === 0) return;
+
+    // Prevent concurrent refreshes
+    if (isRefreshingCheckInsRef.current) {
+      console.log("[AppContext] refreshLatestCheckIns already in progress, skipping");
+      return;
+    }
+
+    isRefreshingCheckInsRef.current = true;
+
+    try {
+      const barCrowdMap = {};
+      const lineWaitMap = {};
+
+      await Promise.all(
+        venues.map(async (venue) => {
+          const venueId = getVenueKeySafe(venue);
+          if (!venueId) return;
+
+          const isBar = venue.venue_type === "bar";
+          const isClub = venue.venue_type === "club";
+
+          if (isBar) {
+            const { data } = await getLatestBarCrowdCheckIn(venueId, 240);
+            if (data) {
+              barCrowdMap[venueId] = data;
+            }
+          }
+
+          if (isClub) {
+            const { data } = await getLatestLineWait(venueId, 120);
+            if (data?.line_wait) {
+              lineWaitMap[venueId] = data.line_wait;
+            }
+          }
+        })
+      );
+
+      setLatestBarCrowdByVenueId(barCrowdMap);
+      setLatestLineWaitByVenueId(lineWaitMap);
+    } catch (error) {
+      console.error("[AppContext] Error refreshing check-ins:", error);
+    } finally {
+      isRefreshingCheckInsRef.current = false;
     }
   }, [venues]);
 
@@ -52,24 +126,51 @@ export function AppProvider({ children }) {
     loadVenues();
   }, []);
 
-  // Refresh latest vibes after venues load
+  // Refresh vibes and check-ins after venues load
   useEffect(() => {
     if (venues.length > 0 && !latestVibesLoaded) {
       refreshLatestVibes();
+      refreshLatestCheckIns();
     }
-  }, [venues, latestVibesLoaded, refreshLatestVibes]);
+  }, [venues, latestVibesLoaded, refreshLatestVibes, refreshLatestCheckIns]);
 
-  // Upsert latest vibe into the central map
+  // Upsert latest vibe
   const upsertLatestVibe = useCallback((vibe) => {
     if (!vibe || !vibe.venue_id) {
       console.warn("[AppContext] upsertLatestVibe called with invalid vibe:", vibe);
       return;
     }
     
-    const venueKey = vibe.venue_id; // venue_id is already the venue ID
+    const venueKey = vibe.venue_id;
     setLatestVibesByVenueId((prev) => ({
       ...prev,
       [venueKey]: vibe,
+    }));
+  }, []);
+
+  // Upsert latest bar crowd check-in
+  const upsertLatestBarCrowd = useCallback((venueId, checkInData) => {
+    if (!venueId || !checkInData) {
+      console.warn("[AppContext] upsertLatestBarCrowd: invalid data");
+      return;
+    }
+    
+    setLatestBarCrowdByVenueId((prev) => ({
+      ...prev,
+      [venueId]: checkInData,
+    }));
+  }, []);
+
+  // Upsert latest line wait check-in
+  const upsertLatestLineWait = useCallback((venueId, lineWait) => {
+    if (!venueId || !lineWait) {
+      console.warn("[AppContext] upsertLatestLineWait: invalid data");
+      return;
+    }
+    
+    setLatestLineWaitByVenueId((prev) => ({
+      ...prev,
+      [venueId]: lineWait,
     }));
   }, []);
 
@@ -86,6 +187,10 @@ export function AppProvider({ children }) {
         latestVibesLoaded,
         upsertLatestVibe,
         refreshLatestVibes,
+        latestBarCrowdByVenueId,
+        latestLineWaitByVenueId,
+        upsertLatestBarCrowd,
+        upsertLatestLineWait,
       }}
     >
       {children}

@@ -2,28 +2,51 @@ require("dotenv").config();
 
 module.exports = {
   expo: {
-    name: "darknite",
-    slug: "snack-d9344fab-ad34-4105-a13a-497c2a212102",
+    name: "DarkNite",
+    slug: "darknite",
     version: "1.0.0",
     orientation: "portrait",
     icon: "./assets/icon.png",
-    userInterfaceStyle: "light",
-    newArchEnabled: false,
+    userInterfaceStyle: "dark",
     splash: {
       image: "./assets/splash-icon.png",
       resizeMode: "contain",
-      backgroundColor: "#ffffff"
+      backgroundColor: "#050013"
     },
     ios: {
-      supportsTablet: true,
+      supportsTablet: false,
       bundleIdentifier: "com.darknite.app",
+      buildNumber: "1",
+      usesAppleSignIn: true,
+      infoPlist: {
+        UIBackgroundModes: ["remote-notification"],
+      },
     },
     scheme: "darknite",
-    plugins: [],
+    plugins: [
+      "expo-apple-authentication",
+      [
+        "expo-notifications",
+        {
+          icon: "./assets/icon.png",
+          color: "#A855F7",
+        }
+      ],
+      [
+        "@sentry/react-native/expo",
+        {
+          url: "https://sentry.io/",
+          project: "react-native",
+          organization: "darknite"
+        }
+      ]
+    ],
     android: {
+      package: "com.darknite.app",
+      versionCode: 1,
       adaptiveIcon: {
         foregroundImage: "./assets/adaptive-icon.png",
-        backgroundColor: "#ffffff"
+        backgroundColor: "#050013"
       },
       edgeToEdgeEnabled: true
     },
@@ -34,7 +57,9 @@ module.exports = {
       supabaseUrl: process.env.SUPABASE_URL,
       supabaseAnonKey: process.env.SUPABASE_ANON_KEY,
       sentryDsn: process.env.SENTRY_DSN || process.env.EXPO_PUBLIC_SENTRY_DSN,
+      eas: {
+        projectId: process.env.EAS_PROJECT_ID
+      }
     }
   }
 };
-

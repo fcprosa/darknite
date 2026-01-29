@@ -52,7 +52,14 @@ export default function HomeStackNavigator() {
         </Stack.Screen>
         <Stack.Screen name="VenuePicker">
           {({ navigation, route }) => (
-            <VenuePickerScreen navigation={navigation} route={route} />
+            <VenuePickerScreen
+              navigation={navigation}
+              route={route}
+              onOpenSheet={(venue) => {
+                setSelectedVenue(venue);
+                setShowPostVibe(true);
+              }}
+            />
           )}
         </Stack.Screen>
         <Stack.Screen name="PostVibe">
@@ -142,10 +149,14 @@ export default function HomeStackNavigator() {
           venue={selectedVenue}
           navigation={null}
           route={{ params: { origin: 'home' } }}
-          onClose={() => setShowPostVibe(false)}
+          onClose={() => {
+            setShowPostVibe(false);
+            // Don't clear selectedVenue here - it breaks VenueDetails when dismissing sheet
+          }}
           onSuccess={() => {
             setRefreshKey();
             setShowPostVibe(false);
+            // Don't clear selectedVenue - user stays on VenueDetails after posting
           }}
         />
       )}

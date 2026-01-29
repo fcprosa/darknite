@@ -365,12 +365,7 @@ export default function ProfileSetupScreen({ navigation, route }) {
                     key={option.value}
                     label={option.label}
                     selected={preferredScene === option.value}
-                    onPress={() => {
-                      // #region agent log
-                      fetch('http://127.0.0.1:7242/ingest/cba8ee34-06e8-4e52-ac33-69cdc33161c4',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ProfileSetupScreen.js:355',message:'OptionChip onPress',data:{optionValue:option.value,optionLabel:option.label,previousPreferredScene:preferredScene},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-                      // #endregion
-                      setPreferredScene(option.value);
-                    }}
+                    onPress={() => setPreferredScene(option.value)}
                   />
                 ))}
               </View>

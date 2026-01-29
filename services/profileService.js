@@ -14,7 +14,7 @@ export async function getUserProfile(userId) {
   try {
     const { data, error } = await supabase
       .from("user_profiles")
-      .select("username, preferred_scene, favorite_genres, favorite_neighborhoods, going_out_days, reminders_enabled")
+      .select("username, preferred_scene, favorite_genres, favorite_neighborhoods, going_out_days, reminders_enabled, notification_settings")
       .eq("id", userId)
       .maybeSingle();
 
@@ -243,7 +243,7 @@ export async function updateProfile(profileData) {
  */
 export async function profileExists(userId) {
   if (!userId) return false;
-  
+
   try {
     const { data, error } = await supabase
       .from("user_profiles")
@@ -260,6 +260,35 @@ export async function profileExists(userId) {
   } catch (error) {
     log.error("Exception checking profile existence:", error);
     return false;
+  }
+}
+
+/**
+ * Check if vibe reminders are enabled for a user
+ * Reads from notification_settings JSON column
+ * @param {string} userId - User ID
+ * @returns {Promise<boolean>} True if vibe reminders are enabled (default: true)
+ */
+export async function areVibeRemindersEnabled(userId) {
+  if (!userId) return true; // Default to enabled
+
+  try {
+    const { data, error } = await supabase
+      .from("user_profiles")
+      .select("notification_settings")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (error) {
+      log.error("Error checking vibe reminders setting:", error.message);
+      return true; // Default to enabled on error
+    }
+
+    // Read from notification_settings JSON, default to true if not set
+    return data?.notification_settings?.vibeRemindersEnabled ?? true;
+  } catch (error) {
+    log.error("Exception checking vibe reminders setting:", error);
+    return true; // Default to enabled on error
   }
 }
 

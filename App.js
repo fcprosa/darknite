@@ -3,12 +3,16 @@ import './utils/sentry';
 import { getSentry } from './utils/sentry';
 
 import React, { useRef, useEffect } from "react";
-import { SafeAreaView, StyleSheet } from "react-native";
+import { View, StyleSheet } from "react-native";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { AppProvider, useAppContext } from "./contexts/AppContext";
+import { NetworkProvider } from "./contexts/NetworkContext";
 import RootNavigator from "./navigation/RootNavigator";
 import AuthModal from "./components/AuthModal";
+import OfflineBanner from "./components/OfflineBanner";
 import { navigationRef } from "./navigation/navigationService";
+import { addNotificationResponseListener } from "./services/notificationService";
 
 // Get Sentry instance for wrapping
 const Sentry = getSentry();
@@ -71,19 +75,67 @@ function PendingNavHandler() {
   return null;
 }
 
+// Component to handle notification tap responses (deep linking)
+function NotificationHandler() {
+  const { venues } = useAppContext();
+
+  useEffect(() => {
+    const unsubscribe = addNotificationResponseListener((data) => {
+      console.log("[NotificationHandler] Notification tapped:", data);
+
+      if (!navigationRef.isReady()) {
+        console.log("[NotificationHandler] Navigation not ready");
+        return;
+      }
+
+      const { type, venueId, venueName } = data;
+
+      if (type === "weekly_reminder") {
+        // Navigate to Home tab to see what's happening
+        console.log("[NotificationHandler] Weekly reminder → Home");
+        navigationRef.navigate("MainTabs", { screen: "HomeTab" });
+      } else if (type === "vibe_reminder" && venueId) {
+        // Find the venue and navigate to PostVibe screen
+        console.log("[NotificationHandler] Vibe reminder → PostVibe for", venueName);
+        const venue = venues.find((v) => v.id === venueId);
+        if (venue) {
+          navigationRef.navigate("PostVibe", { venue });
+        } else {
+          // If venue not found in context, navigate with minimal info
+          navigationRef.navigate("PostVibe", {
+            venue: { id: venueId, name: venueName || "Venue" },
+          });
+        }
+      }
+    });
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [venues]);
+
+  return null;
+}
+
 // Wrap App component with Sentry if available
 const AppComponent = function App() {
   return (
-    <SafeAreaView style={styles.container}>
-      <AuthProvider>
-        <AppProvider>
-          <RootNavigator />
-          <AuthModalWrapper />
-          <SignOutGuestReset />
-          <PendingNavHandler />
-        </AppProvider>
-      </AuthProvider>
-    </SafeAreaView>
+    <SafeAreaProvider>
+      <View style={styles.container}>
+        <NetworkProvider>
+          <AuthProvider>
+            <AppProvider>
+              <RootNavigator />
+              <AuthModalWrapper />
+              <SignOutGuestReset />
+              <PendingNavHandler />
+              <NotificationHandler />
+              <OfflineBanner />
+            </AppProvider>
+          </AuthProvider>
+        </NetworkProvider>
+      </View>
+    </SafeAreaProvider>
   );
 };
 

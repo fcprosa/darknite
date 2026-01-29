@@ -1,48 +1,73 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  ImageBackground,
+  Animated,
   Linking,
-  Platform,
+  Dimensions,
+  Alert,
+  ActivityIndicator,
 } from "react-native";
-import { validateVenueType, isBar as isBarHelper, getVenueKeySafe } from "../utils/venueHelpers";
+import { LinearGradient } from "expo-linear-gradient";
+import { BlurView } from "expo-blur";
+import * as Haptics from "expo-haptics";
+import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect } from "@react-navigation/native";
+import { useAuth } from "../contexts/AuthContext";
+import { useAppContext } from "../contexts/AppContext";
 import { getLatestVibe, getRecentVibes } from "../services/vibeService";
+import { getCheckInCount, createCheckIn, getLatestBarCrowdCheckIn, getLatestLineWait, getRecentCheckIns } from "../services/checkInService";
+import { scheduleVibeReminder } from "../services/notificationService";
 import { formatTimeAgo } from "../utils/timeHelpers";
-import { getDisplayValue, MISSING_DATA_PLACEHOLDER } from "../utils/displayHelpers";
-import { mapCoverPriceToUI, mapBarTierToUI, mapBarTierToSymbol, mapLegacyDrinksPriceToTier } from "../utils/priceMapping";
+import { getDisplayRatio } from "../utils/vibeHelpers";
+import { mapCoverPriceToUI, mapBarTierToUI, mapBarTierToSymbol, mapBarTierToFullLabel } from "../utils/priceMapping";
+import CheckInModal from "./CheckInModal";
+import EmptyState, { EmptyStates } from "./EmptyState";
 
-function mapRatioToPercent(ratioLabel) {
-  switch (ratioLabel) {
-    case "Mostly guys":
-      return { guys: 70, girls: 30 };
-    case "Balanced":
-      return { guys: 50, girls: 50 };
-    case "Mostly girls":
-      return { guys: 30, girls: 70 };
-    default:
-      return { guys: 50, girls: 50 };
-  }
-}
+const { width } = Dimensions.get("window");
 
 function getCrowdEmoji(crowd) {
   switch (crowd) {
-    case "Dead":
-      return "💀";
-    case "Chill":
-      return "😌";
-    case "Fun":
-      return "🎉";
-    case "Packed":
-      return "🔥";
-    case "Chaos":
-      return "⚡";
-    default:
-      return "❓";
+    case "Dead": return "💀";
+    case "Chill": return "😌";
+    case "Fun": return "🎉";
+    case "Buzzing": return "🐝";
+    case "Packed": return "🔥";
+    case "Chaos": return "⚡";
+    default: return null;
   }
+}
+
+function getCrowdGradient(crowd) {
+  switch (crowd) {
+    case "Dead": return ["#6B7280", "#4B5563"];
+    case "Chill": return ["#3B82F6", "#2563EB"];
+    case "Fun": return ["#A855F7", "#9333EA"];
+    case "Buzzing": return ["#F59E0B", "#D97706"]; // Amber/yellow for buzzing bee
+    case "Packed": return ["#EF4444", "#DC2626"];
+    case "Chaos": return ["#F97316", "#EA580C"];
+    default: return ["#64748B", "#475569"];
+  }
+}
+
+function getBarTypeEmoji(barType) {
+  if (!barType) return "🍸";
+  switch (barType) {
+    case "cocktail": return "🍸";
+    case "sports": return "🏈";
+    case "dive": return "🍺";
+    case "wine": return "🍷";
+    case "speakeasy": return "🕵️";
+    default: return "🍸";
+  }
+}
+
+function getBarTypeLabel(barType) {
+  if (!barType) return "";
+  return barType.charAt(0).toUpperCase() + barType.slice(1);
 }
 
 function getMusicEmoji(music) {
@@ -56,483 +81,623 @@ function getMusicEmoji(music) {
   return "🎵";
 }
 
-function getBarTypeEmoji(barType) {
-  if (!barType) return "";
-  switch (barType) {
-    case "cocktail": return "🍸";
-    case "sports": return "🏈";
-    case "dive": return "🍺";
-    case "wine": return "🍷";
-    case "speakeasy": return "🕵️";
-    default: return "";
-  }
-}
+export default function VenueDetailsLovable({ venue, onBack, onOpenSheet, refreshKey }) {
+  const { user, isAuthenticated } = useAuth();
+  const { latestVibesByVenueId, upsertLatestVibe, upsertLatestBarCrowd, upsertLatestLineWait } = useAppContext();
 
-function getBarTypeLabel(barType) {
-  if (!barType) return "";
-  switch (barType) {
-    case "cocktail": return "Cocktail";
-    case "sports": return "Sports";
-    case "dive": return "Dive";
-    case "wine": return "Wine";
-    case "speakeasy": return "Speakeasy";
-    default: return "";
-  }
-}
+  // Use context as single source of truth for latest vibe (syncs with VenueCardLovable)
+  const latestVibe = latestVibesByVenueId?.[venue?.id] ?? null;
 
-function getRatioEmoji(ratio) {
-  if (!ratio) return null;
-  if (ratio.includes("guys")) return "👥";
-  if (ratio.includes("girls")) return "👭";
-  return "⚖️";
-}
-
-function getLineEmoji(line) {
-  if (!line) return null;
-  if (line.includes("No line")) return "✅";
-  if (line.includes("30+")) return "⏳";
-  return "⏱️";
-}
-
-function getCoverEmoji(cover) {
-  if (!cover) return null;
-  if (cover.includes("Free")) return "🆓";
-  if (cover.includes("$20+")) return "💎";
-  return "💰";
-}
-
-// Build summary chips from a vibe for display
-function buildVibeChips({ vibe, venueType }) {
-  if (!vibe) return [];
-  const isBar = venueType === "bar";
-  const chips = [];
-
-  if (isBar) {
-    // Bar: Bar Type, Crowd, Price, Music
-    if (vibe.bar_type) {
-      chips.push({
-        key: "bar_type",
-        label: getBarTypeLabel(vibe.bar_type),
-        emoji: getBarTypeEmoji(vibe.bar_type),
-        selected: true,
-      });
-    }
-    if (vibe.crowd) {
-      chips.push({
-        key: "crowd",
-        label: vibe.crowd,
-        emoji: getCrowdEmoji(vibe.crowd),
-        selected: true,
-      });
-    }
-    // Price for bars
-    if (vibe.drinks_price_tier || vibe.drinks_price) {
-      let priceLabel = null;
-      if (vibe.drinks_price_tier) {
-        priceLabel = mapBarTierToUI(vibe.drinks_price_tier);
-      } else if (vibe.drinks_price) {
-        const tier = mapLegacyDrinksPriceToTier(vibe.drinks_price);
-        priceLabel = tier ? mapBarTierToUI(tier) : null;
-      }
-      if (priceLabel) {
-        chips.push({
-          key: "price",
-          label: priceLabel,
-          emoji: "🍹",
-          selected: true,
-        });
-      }
-    }
-    if (vibe.music) {
-      chips.push({
-        key: "music",
-        label: vibe.music,
-        emoji: getMusicEmoji(vibe.music),
-        selected: true,
-      });
-    }
-  } else {
-    // Club: Crowd, Ratio, Line, Price, Music
-    if (vibe.crowd) {
-      chips.push({
-        key: "crowd",
-        label: vibe.crowd,
-        emoji: getCrowdEmoji(vibe.crowd),
-        selected: true,
-      });
-    }
-    if (vibe.ratio) {
-      chips.push({
-        key: "ratio",
-        label: vibe.ratio,
-        emoji: getRatioEmoji(vibe.ratio),
-        selected: true,
-      });
-    }
-    if (vibe.line) {
-      chips.push({
-        key: "line",
-        label: vibe.line,
-        emoji: getLineEmoji(vibe.line),
-        selected: true,
-      });
-    }
-    if (vibe.cover) {
-      const coverLabel = mapCoverPriceToUI(vibe.cover);
-      if (coverLabel) {
-        chips.push({
-          key: "price",
-          label: coverLabel,
-          emoji: getCoverEmoji(coverLabel),
-          selected: true,
-        });
-      }
-    }
-    if (vibe.music) {
-      chips.push({
-        key: "music",
-        label: vibe.music,
-        emoji: getMusicEmoji(vibe.music),
-        selected: true,
-      });
-    }
-  }
-
-  return chips;
-}
-
-// Reusable VibeChip component (same as PostVibeScreen)
-const VibeChip = React.memo(function VibeChip({ chip, muted = false }) {
-  const { label, emoji, selected } = chip;
-  const displayEmoji = selected && emoji ? emoji : null;
-
-  return (
-    <View style={[styles.vibeChip, muted && !selected && styles.vibeChipMuted]}>
-      {displayEmoji && <Text style={styles.vibeChipEmoji}>{displayEmoji}</Text>}
-      <Text
-        style={[
-          styles.vibeChipText,
-          muted && !selected && styles.vibeChipTextMuted,
-        ]}
-      >
-        {label}
-      </Text>
-    </View>
-  );
-});
-
-
-function openMaps(address) {
-  const encodedAddress = encodeURIComponent(address);
-  const url =
-    Platform.OS === "ios"
-      ? `maps://maps.apple.com/?q=${encodedAddress}`
-      : `geo:0,0?q=${encodedAddress}`;
-
-  Linking.openURL(url).catch((err) => {
-    // Fallback to web maps
-    const webUrl = `https://www.google.com/maps/search/?api=1&query=${encodedAddress}`;
-    Linking.openURL(webUrl).catch(console.error);
-  });
-}
-
-export default function VenueDetailsLovable({
-  venue,
-  onBack,
-  onOpenSheet,
-  refreshKey,
-}) {
-  const [latestVibe, setLatestVibe] = useState(null);
-  const [recentVibes, setRecentVibes] = useState([]);
+  const [recentUpdates, setRecentUpdates] = useState([]); // Combined vibes + check-ins
+  const [checkInCount, setCheckInCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [showCheckInModal, setShowCheckInModal] = useState(false);
+  const [latestBarCrowd, setLatestBarCrowd] = useState(null);
+  const [latestLineWait, setLatestLineWait] = useState(null);
+
+  const headerAnim = useRef(new Animated.Value(0)).current;
+  const contentAnim = useRef(new Animated.Value(50)).current;
+  const opacityAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    let isMounted = true;
+    Animated.parallel([
+      Animated.spring(headerAnim, {
+        toValue: 1,
+        tension: 80,
+        friction: 10,
+        useNativeDriver: true,
+      }),
+      Animated.spring(contentAnim, {
+        toValue: 0,
+        delay: 100,
+        tension: 80,
+        friction: 10,
+        useNativeDriver: true,
+      }),
+      Animated.timing(opacityAnim, {
+        toValue: 1,
+        duration: 400,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, []);
 
-    async function load() {
-      if (!venue) return;
-      setLoading(true);
-      // Defensive: ensure we have a valid key
-      const key = getVenueKeySafe(venue);
-      if (!key) {
-        console.error('[VenueDetails] Venue missing ID:', venue);
-        if (isMounted) {
-          setLoading(false);
-        }
-        return;
+  const loadData = async () => {
+    if (!venue?.id) return;
+
+    setLoading(true);
+
+    try {
+      const venueKey = venue.id;
+
+      // Fetch latest vibe and update context (which updates latestVibe via derived state)
+      const vibeData = await getLatestVibe(venueKey);
+      if (vibeData) {
+        upsertLatestVibe(vibeData);
       }
-      const [latest, recent] = await Promise.all([
-        getLatestVibe(key, { 
-          showError: true, 
-          retries: 2,
-          selectFields: "id, crowd, ratio, line, cover, drinks_price, drinks_price_tier, music, bar_type, created_at, stay_duration, tags"
-        }),
-        getRecentVibes(key, 2),
-      ]);
-      if (isMounted) {
-        setLatestVibe(latest);
-        setRecentVibes(recent);
-        setLoading(false);
+
+      // Fetch recent vibes (24 hours)
+      const recentVibesData = await getRecentVibes(venueKey, 24);
+      const vibesWithType = (recentVibesData || []).map(vibe => ({
+        ...vibe,
+        _type: 'vibe',
+      }));
+
+      // Fetch recent check-ins (24 hours)
+      const checkInsResult = await getRecentCheckIns(venueKey, 24, 20);
+      const checkInsWithType = (checkInsResult?.data || []).map(checkIn => ({
+        ...checkIn,
+        _type: 'checkin',
+      }));
+
+      // Merge and sort by created_at (newest first)
+      const combined = [...vibesWithType, ...checkInsWithType]
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+        .slice(0, 15); // Limit to 15 total items
+
+      setRecentUpdates(combined);
+
+      // Get check-in data based on venue type
+      if (venue?.venue_type === "bar") {
+        const latestCrowdRes = await getLatestBarCrowdCheckIn(venueKey, 60);
+        const latestCrowdData = latestCrowdRes?.data ?? latestCrowdRes ?? null;
+        setLatestBarCrowd(latestCrowdData);
+        setLatestLineWait(null);
+      } else if (venue?.venue_type === "club") {
+        const latestLineRes = await getLatestLineWait(venueKey, 120);
+        const latestLineData = latestLineRes?.data?.line_wait ?? null;
+        setLatestLineWait(latestLineData);
+        setLatestBarCrowd(null);
+      } else {
+        setLatestBarCrowd(null);
+        setLatestLineWait(null);
       }
+
+      const checkInResult = await getCheckInCount(venueKey, 60);
+      setCheckInCount(checkInResult?.count || 0);
+    } catch (error) {
+      console.error("[VenueDetails] Error loading data:", error);
+      setRecentUpdates([]);
+      setCheckInCount(0);
+      setLatestBarCrowd(null);
+      setLatestLineWait(null);
+    } finally {
+      setLoading(false);
     }
-
-    load();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [venue, refreshKey]);
-
-  // Show loading state if venue is temporarily missing (not genuinely unknown)
-  if (!venue) {
-    return (
-      <View style={styles.container}>
-        <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-          <Text style={{ color: "#E5E7EB" }}>Loading venue...</Text>
-        </View>
-      </View>
-    );
-  }
-
-  // Defensive checks: ensure venue properties are defined
-  // Only show "Unknown Venue" if venue exists but name is genuinely missing
-  const venueName = venue?.name || "Unknown Venue";
-  const venueAddress = venue?.address || null;
-  const venueCity = venue?.city || "New York";
-  const venueNeighborhood = venue?.neighborhood || null;
-  
-  // Build address string for Maps deep-link: prefer address, fallback to neighborhood
-  const fullAddress = venueAddress
-    ? `${venueName}, ${venueAddress}, ${venueCity}`
-    : `${venueName}, ${venueNeighborhood || "NYC"}, ${venueCity}`;
-  
-  // Build display address for Location section: address only, no venue name
-  const displayAddress = venueAddress
-    ? venueAddress
-    : `${venueNeighborhood || ""}${venueCity ? ", " + venueCity : ""}`.trim() || "Location not available";
-
-  const hasVibe = !!latestVibe;
-  const vibeCount = recentVibes.length;
-
-  // Calculate freshness status dot color
-  const getStatusDotColor = (createdAt) => {
-    if (!createdAt) return "#9CA3AF"; // gray
-    const now = new Date();
-    const then = new Date(createdAt);
-    const diffMins = Math.floor((now - then) / 60000);
-    if (diffMins < 15) return "#10B981"; // green
-    if (diffMins < 60) return "#F59E0B"; // yellow
-    return "#9CA3AF"; // gray
   };
 
-  const statusDotColor = hasVibe ? getStatusDotColor(latestVibe.created_at) : "#9CA3AF";
+  const updateCheckInCount = async () => {
+    if (!venue?.id) return;
+    try {
+      const result = await getCheckInCount(venue.id, 60);
+      setCheckInCount(result?.count || 0);
+    } catch (error) {
+      console.error("[VenueDetails] Error updating check-in count:", error);
+    }
+  };
 
-  // Validate venue type
-  const venueTypeValidation = validateVenueType(venue?.venue_type);
-  const venueType = venueTypeValidation.valid ? venueTypeValidation.type : null;
-  const isBar = isBarHelper(venue?.venue_type);
-  
-  // For bars: use drinks_price_tier (new system), fallback to legacy drinks_price
-  // For clubs: drinks_price is actually cover charge
-  let drinksPriceText = null;
-  let coverText = null;
-  if (isBar && hasVibe) {
-    if (latestVibe.drinks_price_tier) {
-      // New tier system: display full label (e.g., "$$ Normal")
-      drinksPriceText = mapBarTierToUI(latestVibe.drinks_price_tier);
-    } else if (latestVibe.drinks_price) {
-      // Backward compatibility: convert legacy drinks_price to tier label
-      const tier = mapLegacyDrinksPriceToTier(latestVibe.drinks_price);
-      drinksPriceText = tier ? mapBarTierToUI(tier) : null;
+  useEffect(() => {
+    loadData();
+  }, [venue?.id, refreshKey]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      console.log("[VenueDetails] Screen focused - reloading data");
+      loadData();
+    }, [venue?.id])
+  );
+
+  useEffect(() => {
+    if (!venue?.id) return;
+    
+    const interval = setInterval(() => {
+      console.log("[VenueDetails] Polling check-in count...");
+      updateCheckInCount();
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [venue?.id]);
+
+  const handleCheckIn = () => {
+    if (!isAuthenticated || !user) {
+      Alert.alert("Sign in required", "Please sign in to check in");
+      return;
     }
-    drinksPriceText = getDisplayValue(drinksPriceText, MISSING_DATA_PLACEHOLDER);
-  } else if (!isBar && hasVibe) {
-    // Club: cover charge
-    if (latestVibe.cover) {
-      coverText = mapCoverPriceToUI(latestVibe.cover);
-    }
-    coverText = getDisplayValue(coverText, MISSING_DATA_PLACEHOLDER);
-  } else {
-    // No vibe data
-    coverText = getDisplayValue(null, MISSING_DATA_PLACEHOLDER);
-  }
+
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch (e) {}
+
+    setShowCheckInModal(true);
+  };
+
+  const handleCheckInSuccess = () => {
+    setCheckInCount(prev => prev + 1);
+    
+    setTimeout(async () => {
+      await loadData();
+      
+      // Propagate check-in data to AppContext
+      if (venue?.venue_type === "bar" && latestBarCrowd) {
+        upsertLatestBarCrowd(venue.id, latestBarCrowd);
+      } else if (venue?.venue_type === "club" && latestLineWait) {
+        upsertLatestLineWait(venue.id, latestLineWait);
+      }
+    }, 500);
+  };
+
+  const handleOpenMaps = () => {
+    const address = venue?.address || "";
+    const query = encodeURIComponent(`${venue.name} ${address}`);
+    const url = `https://maps.google.com/?q=${query}`;
+    Linking.openURL(url);
+  };
+
+  const handleShare = () => {
+    Alert.alert("Share", "Share feature coming soon!");
+  };
+
+  const handleSave = () => {
+    Alert.alert("Save", "Save feature coming soon!");
+  };
+
+  const ratioInfo = getDisplayRatio(venue, latestVibe);
+  const isBar = venue?.venue_type === "bar";
+  console.log('[VenueDetails DEBUG]', {
+    venueName: venue?.name,
+    isBar,
+    drinks_price_tier: latestVibe?.drinks_price_tier,
+    drinks_price: latestVibe?.drinks_price
+  });
   
-  // Log error if venue type is invalid (for monitoring)
-  if (!venueTypeValidation.valid) {
-    console.error(`[VenueDetails] Invalid venue_type for "${venue?.name}": ${venueTypeValidation.error}`);
-    // In production, you'd send this to your monitoring service
-    // e.g., Sentry.captureException(new Error(`Invalid venue_type: ${venueTypeValidation.error}`));
-  }
+  // For bars: crowd comes from check_ins (latestBarCrowd)
+  // For clubs: crowd comes from vibes (latestVibe)
+  const crowdLevel = isBar
+    ? (latestBarCrowd?.crowd_level || latestVibe?.crowd || null)
+    : (latestVibe?.crowd || null);
 
   return (
     <View style={styles.container}>
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        {/* Hero Image */}
-        <View style={styles.heroContainer}>
-          <ImageBackground
-            source={require("../assets/splash-icon.png")}
-            style={styles.heroImage}
-            imageStyle={styles.heroImageStyle}
-          >
-            <View style={styles.heroOverlay} />
+      <Animated.View
+        style={[
+          styles.header,
+          {
+            transform: [
+              {
+                translateY: headerAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [-100, 0],
+                }),
+              },
+            ],
+          },
+        ]}
+      >
+        <BlurView intensity={80} tint="dark" style={styles.headerBlur}>
+          <View style={styles.headerContent}>
             <TouchableOpacity style={styles.backButton} onPress={onBack}>
-              <View style={styles.backButtonCircle}>
-                <Text style={styles.backButtonText}>←</Text>
-              </View>
+              <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
             </TouchableOpacity>
-          </ImageBackground>
-        </View>
 
-        {/* Glassy Card with Venue Info */}
-        <View style={styles.glossyCard}>
-          <View style={styles.venueNameRow}>
-            <Text style={styles.venueName}>{venueName}</Text>
-            <View style={styles.typeBadge}>
-              {(() => {
-                if (!venueTypeValidation.valid) {
-                  // Show error badge for invalid venue type
-                  return (
-                    <>
-                      <Text style={styles.typeBadgeEmoji}>⚠️</Text>
-                      <Text style={[styles.typeBadgeText, styles.typeBadgeError]}>
-                        ERROR
-                      </Text>
-                    </>
-                  );
-                }
-                const isClub = venueType === "club";
-                return (
-                  <>
-                    <Text style={styles.typeBadgeEmoji}>
-                      {isClub ? "🪩" : "🍸"}
-                    </Text>
-                    <Text style={styles.typeBadgeText}>
-                      {isClub ? "CLUB" : "BAR"}
-                    </Text>
-                  </>
-                );
-              })()}
+            <View style={styles.headerCenter}>
+              <Text style={styles.headerTitle}>{venue?.name || "Venue"}</Text>
+              <Text style={styles.headerSubtitle}>{venue?.neighborhood || ""}</Text>
             </View>
+
+            <TouchableOpacity style={styles.shareButton} onPress={handleShare}>
+              <Ionicons name="share-outline" size={24} color="#FFFFFF" />
+            </TouchableOpacity>
           </View>
-        </View>
+        </BlurView>
+      </Animated.View>
 
-        {/* Post Your Vibe Button */}
-        <TouchableOpacity style={styles.primaryButton} onPress={() => onOpenSheet(venue)}>
-          <Text style={styles.primaryButtonText}>Post your vibe 🔥</Text>
-        </TouchableOpacity>
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <Animated.View
+          style={{
+            transform: [{ translateY: contentAnim }],
+            opacity: opacityAnim,
+          }}
+        >
+          <View style={styles.infoGrid}>
+            {/* First Row: Crowd + Check-ins (or Bar Type + Drinks for bars) */}
+            <View style={styles.infoRow}>
+              {isBar ? (
+                // BAR: Show Bar Type + Drinks Price
+                <>
+                  <View style={[styles.infoCard, { backgroundColor: '#EC4899' }]}>
+                    <Text style={styles.infoCardEmoji}>
+                      {latestVibe?.bar_type ? getBarTypeEmoji(latestVibe.bar_type) : "🍸"}
+                    </Text>
+                    <Text style={styles.infoCardValue}>
+                      {latestVibe?.bar_type ? getBarTypeLabel(latestVibe.bar_type) : "—"}
+                    </Text>
+                    <Text style={styles.infoCardLabel}>Bar Type</Text>
+                  </View>
+                  
+                  <View style={[styles.infoCard, { backgroundColor: '#F59E0B' }]}>
+                    <Text style={styles.infoCardEmoji}>🍹</Text>
+                    <Text style={styles.infoCardValue}>
+                      {latestVibe?.drinks_price_tier ? mapBarTierToFullLabel(latestVibe.drinks_price_tier) : "—"}
+                    </Text>
+                    <Text style={styles.infoCardLabel}>Drinks</Text>
+                  </View>
+                </>
+              ) : (
+                // CLUB: Show Crowd + Line
+                <>
+                  <View style={[styles.infoCard, { backgroundColor: getCrowdGradient(crowdLevel)[0] }]}>
+                    <Text style={styles.infoCardEmoji}>{getCrowdEmoji(crowdLevel) || "👥"}</Text>
+                    <Text style={styles.infoCardValue}>{crowdLevel || "—"}</Text>
+                    <Text style={styles.infoCardLabel}>Crowd</Text>
+                  </View>
 
-        {/* Right Now Section */}
-        <Text style={styles.sectionTitle}>Right now</Text>
-        <View style={styles.rightNowCard}>
-          {loading ? (
-            <Text style={styles.mutedText}>Loading...</Text>
-          ) : !hasVibe || vibeCount === 0 ? (
-            <View style={styles.emptyState}>
-              <Text style={styles.mutedText}>No recent vibes yet</Text>
-              <Text style={styles.mutedTextSmall}>
-                Be the first to post a vibe!
-              </Text>
+                  <View style={[styles.infoCard, { backgroundColor: '#10B981' }]}>
+                    <Text style={styles.infoCardEmoji}>⏱</Text>
+                    <Text style={styles.infoCardValue} numberOfLines={1}>
+                      {latestLineWait || latestVibe?.line || "—"}
+                    </Text>
+                    <Text style={styles.infoCardLabel}>Line</Text>
+                  </View>
+                </>
+              )}
             </View>
-          ) : (
-            <>
-              {/* Latest Vibe Label */}
-              <Text style={styles.latestVibeLabel}>Latest vibe</Text>
-              {/* Summary Chips */}
-              <View style={styles.rightNowChipsContainer}>
-                {buildVibeChips({ vibe: latestVibe, venueType }).map((chip) => (
-                  <VibeChip key={chip.key} chip={chip} />
-                ))}
-              </View>
-              {/* Metadata Line with Status Dot */}
-              <View style={styles.rightNowMetadataRow}>
-                <View style={[styles.statusDot, { backgroundColor: statusDotColor }]} />
-                <Text style={styles.rightNowMetadata}>
-                  Updated {formatTimeAgo(latestVibe.created_at)} • {vibeCount} vibe{vibeCount === 1 ? "" : "s"} in last 2h
+
+            {/* Second Row: Music + (Crowd for bars / Cover for clubs) */}
+            <View style={styles.infoRow}>
+              {isBar ? (
+                // BAR: Show Crowd + Music
+                <>
+                  <View style={[styles.infoCard, { backgroundColor: getCrowdGradient(crowdLevel)[0] }]}>
+                    <Text style={styles.infoCardEmoji}>{getCrowdEmoji(crowdLevel) || "👥"}</Text>
+                    <Text style={styles.infoCardValue}>{crowdLevel || "—"}</Text>
+                    <Text style={styles.infoCardLabel}>Crowd</Text>
+                  </View>
+                  
+                  <View style={[styles.infoCard, { backgroundColor: '#8B5CF6' }]}>
+                    <Text style={styles.infoCardEmoji}>🎵</Text>
+                    <Text style={styles.infoCardValue} numberOfLines={1}>
+                      {latestVibe?.music || "—"}
+                    </Text>
+                    <Text style={styles.infoCardLabel}>Music</Text>
+                  </View>
+                </>
+              ) : (
+                // CLUB: Show Cover + Music
+                <>
+                  <View style={[styles.infoCard, { backgroundColor: '#F59E0B' }]}>
+                    <Text style={styles.infoCardEmoji}>💰</Text>
+                    <Text style={styles.infoCardValue}>
+                      {latestVibe?.cover ? mapCoverPriceToUI(latestVibe.cover) : "—"}
+                    </Text>
+                    <Text style={styles.infoCardLabel}>Cover</Text>
+                  </View>
+                  
+                  <View style={[styles.infoCard, { backgroundColor: '#8B5CF6' }]}>
+                    <Text style={styles.infoCardEmoji}>🎵</Text>
+                    <Text style={styles.infoCardValue} numberOfLines={1}>
+                      {latestVibe?.music || "—"}
+                    </Text>
+                    <Text style={styles.infoCardLabel}>Music</Text>
+                  </View>
+                </>
+              )}
+            </View>
+            
+            {/* Third Row: Check-ins Badge (for both bars and clubs) */}
+            <View style={styles.checkInBadgeRow}>
+              <View style={styles.checkInBadgeSmall}>
+                <Text style={styles.checkInBadgeEmoji}>👥</Text>
+                <Text style={styles.checkInBadgeTextSmall}>
+                  {checkInCount > 0 ? `${checkInCount} checked in (60m)` : "No check-ins yet"}
                 </Text>
               </View>
-            </>
-          )}
-        </View>
+            </View>
+          </View>
 
-        {/* Recent Updates */}
-        {!loading && (
-          <>
-            <Text style={styles.sectionTitle}>Recent updates</Text>
-            {recentVibes.length > 0 ? (
-              recentVibes.slice(0, 10).map((vibe, index) => {
-                // Build 2-3 key highlights (crowd + 1-2 other fields)
-                const highlights = [];
-                
-                // Always include crowd
-                if (vibe.crowd) {
-                  highlights.push(`${getCrowdEmoji(vibe.crowd)} ${vibe.crowd}`);
-                }
-                
-                // Add line if available (most actionable for clubs)
-                if (vibe.line && !isBar) {
-                  highlights.push(`${getLineEmoji(vibe.line)} ${vibe.line}`);
-                }
-                
-                // Add music if we don't have 2 highlights yet
-                if (highlights.length < 2 && vibe.music) {
-                  highlights.push(`${getMusicEmoji(vibe.music)} ${vibe.music}`);
-                }
-                
-                // Add ratio if we still need more and it's available
-                if (highlights.length < 2 && vibe.ratio) {
-                  highlights.push(`${getRatioEmoji(vibe.ratio)} ${vibe.ratio}`);
-                }
-                
-                // For bars, add price if available
-                if (isBar && highlights.length < 2 && (vibe.drinks_price_tier || vibe.drinks_price)) {
-                  highlights.push("🍹 Price");
-                }
-                
-                const summaryText = highlights.join(" • ");
-                
-                return (
-                  <TouchableOpacity
-                    key={index}
-                    style={styles.recentUpdateCard}
-                    onPress={() => {
-                      // Scroll to this vibe or show details
-                      // For now, keep tappable for future enhancement
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <View style={styles.recentUpdateContent}>
-                      <Text style={styles.recentUpdateText} numberOfLines={2}>
-                        {summaryText || `${getCrowdEmoji(vibe.crowd)} ${vibe.crowd || "Unknown"}`}
-                      </Text>
-                      <Text style={styles.recentUpdateTime}>
-                        {formatTimeAgo(vibe.created_at, true)}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                );
-              })
+          {ratioInfo.show && (
+            <View style={styles.ratioSection}>
+              <View style={styles.ratioBarContainer}>
+                <View style={styles.ratioBar}>
+                  <LinearGradient
+                    colors={["#3B82F6", "#A855F7"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={[styles.ratioSegment, { flex: ratioInfo.guys }]}
+                  />
+                  <LinearGradient
+                    colors={["#A855F7", "#EC4899"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={[styles.ratioSegment, { flex: ratioInfo.girls }]}
+                  />
+                </View>
+                <View style={styles.ratioLabels}>
+                  <Text style={styles.ratioLabel}>👨 {ratioInfo.guys}%</Text>
+                  <Text style={styles.ratioLabel}>{ratioInfo.girls}% 👩</Text>
+                </View>
+                {ratioInfo.isDefault && (
+                  <Text style={styles.ratioCaption}>No data yet — guessed 50/50</Text>
+                )}
+              </View>
+            </View>
+          )}
+
+          <View style={styles.primaryActionsSection}>
+            <TouchableOpacity
+              style={styles.postVibeButtonLarge}
+              onPress={() => {
+                try {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                } catch (e) {}
+                onOpenSheet(venue);
+              }}
+              activeOpacity={0.8}
+            >
+              <LinearGradient
+                colors={["#A855F7", "#9333EA"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.postVibeGradient}
+              >
+                <Ionicons name="create" size={28} color="#FFFFFF" />
+                <Text style={styles.postVibeTextLarge}>Post your vibe 🔥</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+
+            {isAuthenticated && (
+              <TouchableOpacity
+                style={styles.checkInButtonLarge}
+                onPress={handleCheckIn}
+                activeOpacity={0.8}
+              >
+                <LinearGradient
+                  colors={["#10B981", "#059669"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.checkInGradient}
+                >
+                  <Ionicons name="checkmark-circle" size={24} color="#FFFFFF" />
+                  <Text style={styles.checkInTextLarge}>✓ I'm here (+1 pt)</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          <View style={styles.locationCard}>
+            <View style={styles.locationHeader}>
+              <Ionicons name="location" size={24} color="#A855F7" />
+              <Text style={styles.sectionTitle}>Location</Text>
+            </View>
+            <Text style={styles.locationAddress}>{venue?.address || "Address unavailable"}</Text>
+            
+            <View style={styles.locationActionsRow}>
+              <TouchableOpacity
+                style={styles.locationActionButton}
+                onPress={handleOpenMaps}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.locationActionEmoji}>📍</Text>
+                <Text style={styles.locationActionText}>Navigate</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.locationActionButton}
+                onPress={handleSave}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.locationActionEmoji}>⭐</Text>
+                <Text style={styles.locationActionText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={styles.recentSection}>
+            <Text style={styles.sectionTitle}>🔥 Recent Updates</Text>
+            {loading ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator color="#A855F7" size="small" />
+                <Text style={styles.loadingText}>Loading updates...</Text>
+              </View>
+            ) : recentUpdates.length === 0 ? (
+              <EmptyState
+                {...EmptyStates.noRecentVibes}
+                variant="card"
+              />
             ) : (
-              <View style={styles.recentUpdateEmptyState}>
-                <Text style={styles.mutedText}>No recent updates yet.</Text>
+              <View style={styles.vibeCardsContainer}>
+                {recentUpdates.map((item, index) => {
+                  // CHECK-IN CARD
+                  if (item._type === 'checkin') {
+                    const hasLineWait = item.line_wait;
+                    const hasCrowdLevel = item.crowd_level;
+                    const crowdEmoji = getCrowdEmoji(item.crowd_level);
+
+                    return (
+                      <View key={`checkin-${item.id || index}`} style={styles.checkInCard}>
+                        <LinearGradient
+                          colors={['rgba(16,185,129,0.15)', 'rgba(5,150,105,0.08)']}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                          style={styles.vibeCardGradient}
+                        >
+                          <View style={styles.vibeCardHeader}>
+                            <View style={styles.checkInHeaderLeft}>
+                              <Text style={styles.checkInEmoji}>📍</Text>
+                              <View>
+                                <Text style={styles.checkInLabel}>Someone checked in</Text>
+                                <Text style={styles.vibeCardTimeSmall}>{formatTimeAgo(item.created_at, true)}</Text>
+                              </View>
+                            </View>
+                          </View>
+                          {(hasLineWait || hasCrowdLevel) && (
+                            <View style={styles.vibeCardDetails}>
+                              {hasLineWait && (
+                                <View style={styles.vibeCardTag}>
+                                  <Text style={styles.vibeCardTagText}>⏱ {item.line_wait}</Text>
+                                </View>
+                              )}
+                              {hasCrowdLevel && crowdEmoji && (
+                                <View style={styles.vibeCardTag}>
+                                  <Text style={styles.vibeCardTagText}>{crowdEmoji} {item.crowd_level}</Text>
+                                </View>
+                              )}
+                            </View>
+                          )}
+                        </LinearGradient>
+                      </View>
+                    );
+                  }
+
+                  // VIBE CARD
+                  const vibe = item;
+                  const vibeRatioInfo = getDisplayRatio(venue, vibe);
+                  const vibeCrowd = vibe.crowd;
+                  const crowdEmoji = getCrowdEmoji(vibeCrowd);
+
+                  {/* BAR VIBE LAYOUT */}
+                  if (isBar) {
+                    return (
+                      <TouchableOpacity
+                        key={`vibe-${vibe.id || index}`}
+                        style={styles.vibeCard}
+                        activeOpacity={0.8}
+                      >
+                        <LinearGradient
+                          colors={['rgba(245,158,11,0.12)', 'rgba(168,85,247,0.08)']}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                          style={styles.vibeCardGradient}
+                        >
+                          {/* Bar Header: Bar Type Icon + Time */}
+                          <View style={styles.vibeCardHeader}>
+                            <View style={styles.barVibeHeaderLeft}>
+                              {vibe.bar_type && (
+                                <Text style={styles.barVibeTypeEmoji}>{getBarTypeEmoji(vibe.bar_type)}</Text>
+                              )}
+                              <View>
+                                {vibe.bar_type && (
+                                  <Text style={styles.barVibeTypeText}>{getBarTypeLabel(vibe.bar_type)}</Text>
+                                )}
+                                <Text style={styles.vibeCardTimeSmall}>{formatTimeAgo(vibe.created_at, true)}</Text>
+                              </View>
+                            </View>
+                            {vibe.drinks_price_tier && (
+                              <View style={styles.barVibePriceBadge}>
+                                <Text style={styles.barVibePriceText}>🍺 {mapBarTierToFullLabel(vibe.drinks_price_tier)}</Text>
+                              </View>
+                            )}
+                          </View>
+
+                          {/* Bar Details: Music + Ratio */}
+                          {(vibe.music || (vibeRatioInfo.show && !vibeRatioInfo.isDefault)) && (
+                            <View style={styles.vibeCardDetails}>
+                              {vibe.music && (
+                                <View style={styles.vibeCardTag}>
+                                  <Text style={styles.vibeCardTagText}>{getMusicEmoji(vibe.music)} {vibe.music}</Text>
+                                </View>
+                              )}
+                              {vibeRatioInfo.show && !vibeRatioInfo.isDefault && (
+                                <View style={styles.vibeCardTag}>
+                                  <Text style={styles.vibeCardTagText}>👨 {vibeRatioInfo.guys}% / {vibeRatioInfo.girls}% 👩</Text>
+                                </View>
+                              )}
+                            </View>
+                          )}
+                        </LinearGradient>
+                      </TouchableOpacity>
+                    );
+                  }
+
+                  {/* CLUB VIBE LAYOUT */}
+                  return (
+                    <TouchableOpacity
+                      key={`vibe-${vibe.id || index}`}
+                      style={styles.vibeCard}
+                      activeOpacity={0.8}
+                    >
+                      <LinearGradient
+                        colors={['rgba(168,85,247,0.15)', 'rgba(147,51,234,0.08)']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={styles.vibeCardGradient}
+                      >
+                        {/* Header: Time + Crowd (if available) */}
+                        <View style={styles.vibeCardHeader}>
+                          <Text style={styles.vibeCardTime}>{formatTimeAgo(vibe.created_at, true)}</Text>
+                          {vibeCrowd && crowdEmoji && (
+                            <View style={styles.vibeCardCrowdBadge}>
+                              <Text style={styles.vibeCardCrowdEmoji}>{crowdEmoji}</Text>
+                              <Text style={styles.vibeCardCrowdText}>{vibeCrowd}</Text>
+                            </View>
+                          )}
+                        </View>
+
+                        {/* Club Details: Cover + Line + Music + Ratio */}
+                        <View style={styles.vibeCardDetails}>
+                          {vibe.cover && (
+                            <View style={styles.vibeCardTag}>
+                              <Text style={styles.vibeCardTagText}>💵 {mapCoverPriceToUI(vibe.cover)}</Text>
+                            </View>
+                          )}
+                          {vibe.line && (
+                            <View style={styles.vibeCardTag}>
+                              <Text style={styles.vibeCardTagText}>⏱ {vibe.line}</Text>
+                            </View>
+                          )}
+                          {vibe.music && (
+                            <View style={styles.vibeCardTag}>
+                              <Text style={styles.vibeCardTagText}>{getMusicEmoji(vibe.music)} {vibe.music}</Text>
+                            </View>
+                          )}
+                          {vibeRatioInfo.show && !vibeRatioInfo.isDefault && (
+                            <View style={styles.vibeCardTag}>
+                              <Text style={styles.vibeCardTagText}>👨 {vibeRatioInfo.guys}% / {vibeRatioInfo.girls}% 👩</Text>
+                            </View>
+                          )}
+                        </View>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
             )}
-          </>
-        )}
+          </View>
 
-        {/* Location Card */}
-        <View style={styles.locationCard}>
-          <Text style={styles.locationTitle}>Location</Text>
-          <Text style={styles.locationAddress}>{displayAddress}</Text>
-          <TouchableOpacity
-            style={styles.mapsButton}
-            onPress={() => openMaps(fullAddress)}
-          >
-            <Text style={styles.mapsButtonText}>Open in Maps</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={{ height: 32 }} />
+          <View style={{ height: 40 }} />
+        </Animated.View>
       </ScrollView>
+
+      {/* Check-in Modal */}
+      <CheckInModal
+        visible={showCheckInModal}
+        onClose={() => setShowCheckInModal(false)}
+        venue={venue}
+        onSuccess={handleCheckInSuccess}
+      />
     </View>
   );
 }
@@ -542,269 +707,406 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#050013",
   },
-  scrollView: {
-    flex: 1,
+  header: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 100,
   },
-  heroContainer: {
-    height: 300,
-    width: "100%",
+  headerBlur: {
+    paddingTop: 50,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(168,85,247,0.2)",
   },
-  heroImage: {
-    flex: 1,
-    width: "100%",
-  },
-  heroImageStyle: {
-    resizeMode: "cover",
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
-  },
-  heroOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
+  headerContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
   },
   backButton: {
-    position: "absolute",
-    top: 50,
-    left: 16,
-    zIndex: 10,
-  },
-  backButtonCircle: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "rgba(0,0,0,0.5)",
+    backgroundColor: "rgba(168,85,247,0.2)",
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.2)",
   },
-  backButtonText: {
-    color: "#F9FAFB",
-    fontSize: 20,
-    fontWeight: "600",
-  },
-  glossyCard: {
-    backgroundColor: "rgba(11,6,37,0.8)",
+  headerCenter: {
+    flex: 1,
     marginHorizontal: 16,
-    marginTop: -40,
-    borderRadius: 20,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: "rgba(124,58,237,0.3)",
-    shadowColor: "#A855F7",
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 4 },
   },
-  venueNameRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginBottom: 8,
-    flexWrap: "wrap",
-  },
-  venueName: {
-    color: "#F9FAFB",
-    fontSize: 28,
-    fontWeight: "700",
-  },
-  typeBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(168,85,247,0.15)",
-    borderRadius: 10,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderWidth: 1,
-    borderColor: "rgba(168,85,247,0.3)",
-    gap: 4,
-  },
-  typeBadgeEmoji: {
-    fontSize: 12,
-  },
-  typeBadgeText: {
-    color: "#A855F7",
-    fontSize: 11,
-    fontWeight: "600",
-  },
-  typeBadgeError: {
-    color: "#EF4444",
-  },
-  venueAddress: {
-    color: "#9CA3AF",
-    fontSize: 14,
-  },
-  primaryButton: {
-    backgroundColor: "#A855F7",
-    marginHorizontal: 16,
-    marginTop: 20,
-    paddingVertical: 16,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#A855F7",
-    shadowOpacity: 0.6,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 4 },
-  },
-  primaryButtonText: {
-    color: "#F9FAFB",
+  headerTitle: {
+    color: "#FFFFFF",
     fontSize: 18,
     fontWeight: "700",
   },
-  sectionTitle: {
-    color: "#E5E7EB",
-    fontSize: 20,
-    fontWeight: "700",
-    marginTop: 32,
-    marginBottom: 12,
-    marginHorizontal: 16,
+  headerSubtitle: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 13,
+    marginTop: 2,
   },
-  rightNowCard: {
-    backgroundColor: "#0B0625",
-    marginHorizontal: 16,
-    borderRadius: 16,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: "rgba(124,58,237,0.4)",
-  },
-  latestVibeLabel: {
-    color: "#9CA3AF",
-    fontSize: 12,
-    fontWeight: "500",
-    marginBottom: 12,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  rightNowChipsContainer: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginBottom: 16,
-  },
-  rightNowMetadataRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  rightNowMetadata: {
-    color: "#9CA3AF",
-    fontSize: 12,
-  },
-  vibeChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(168,85,247,0.15)",
-    borderRadius: 12,
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderWidth: 1,
-    borderColor: "rgba(168,85,247,0.3)",
-  },
-  vibeChipMuted: {
-    backgroundColor: "transparent",
-    borderColor: "rgba(156,163,175,0.3)",
-  },
-  vibeChipEmoji: {
-    fontSize: 14,
-    marginRight: 4,
-  },
-  vibeChipText: {
-    color: "#E5E7EB",
-    fontSize: 11,
-    fontWeight: "600",
-  },
-  vibeChipTextMuted: {
-    color: "rgba(156,163,175,0.7)",
-    fontWeight: "500",
-  },
-  emptyState: {
-    paddingVertical: 24,
+  shareButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(168,85,247,0.2)",
+    justifyContent: "center",
     alignItems: "center",
   },
-  mutedText: {
-    color: "#6B7280",
-    fontSize: 14,
-    textAlign: "center",
-  },
-  mutedTextSmall: {
-    color: "#6B7280",
-    fontSize: 12,
-    textAlign: "center",
-    marginTop: 4,
-  },
-  recentUpdateCard: {
-    backgroundColor: "#0B0625",
-    marginHorizontal: 16,
-    marginBottom: 8,
-    borderRadius: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: "rgba(124,58,237,0.2)",
-  },
-  recentUpdateContent: {
+  scrollView: {
     flex: 1,
   },
-  recentUpdateText: {
+  scrollContent: {
+    paddingTop: 120,
+    paddingHorizontal: 16,
+    paddingBottom: 32,
+  },
+  infoGrid: {
+    marginBottom: 24,
+    gap: 12,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  infoCard: {
+    flex: 1,
+    borderRadius: 16,
+    padding: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 120,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  infoCardEmoji: {
+    fontSize: 32,
+    marginBottom: 8,
+  },
+  infoCardValue: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  infoCardLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.8)',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  checkInBadgeRow: {
+    marginTop: 12,
+    alignItems: 'center',
+  },
+  checkInBadgeSmall: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(16,185,129,0.2)',
+    borderRadius: 20,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderWidth: 1.5,
+    borderColor: 'rgba(16,185,129,0.4)',
+    gap: 8,
+  },
+  checkInBadgeEmoji: {
+    fontSize: 16,
+  },
+  checkInBadgeTextSmall: {
+    color: '#6EE7B7',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  ratioSection: {
+    marginBottom: 24,
+  },
+  ratioBarContainer: {
+    backgroundColor: "#0B0625",
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1.5,
+    borderColor: "rgba(168,85,247,0.3)",
+  },
+  ratioBar: {
+    flexDirection: "row",
+    height: 8,
+    borderRadius: 4,
+    overflow: "hidden",
+    marginBottom: 12,
+  },
+  ratioSegment: {
+    height: "100%",
+  },
+  ratioLabels: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  ratioLabel: {
     color: "#E5E7EB",
     fontSize: 14,
+    fontWeight: "600",
+  },
+  ratioCaption: {
+    color: "#64748B",
+    fontSize: 11,
+    marginTop: 6,
+    textAlign: "center",
     fontWeight: "500",
-    marginBottom: 4,
-    lineHeight: 20,
   },
-  recentUpdateTime: {
-    color: "#9CA3AF",
-    fontSize: 12,
+  primaryActionsSection: {
+    marginBottom: 24,
   },
-  recentUpdateEmptyState: {
-    backgroundColor: "#0B0625",
-    marginHorizontal: 16,
-    borderRadius: 12,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: "rgba(124,58,237,0.2)",
+  postVibeButtonLarge: {
+    borderRadius: 16,
+    overflow: "hidden",
+    marginBottom: 12,
+    shadowColor: "#A855F7",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  postVibeGradient: {
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 18,
+    paddingHorizontal: 24,
+    gap: 12,
+  },
+  postVibeTextLarge: {
+    color: "#FFFFFF",
+    fontSize: 18,
+    fontWeight: "700",
+  },
+  checkInButtonLarge: {
+    borderRadius: 16,
+    overflow: "hidden",
+    marginBottom: 12,
+    shadowColor: "#10B981",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  checkInGradient: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    gap: 12,
+  },
+  checkInTextLarge: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "700",
   },
   locationCard: {
     backgroundColor: "#0B0625",
-    marginHorizontal: 16,
-    marginTop: 16,
     borderRadius: 16,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: "rgba(124,58,237,0.4)",
+    padding: 16,
+    borderWidth: 1.5,
+    borderColor: "rgba(168,85,247,0.3)",
+    marginBottom: 24,
   },
-  locationTitle: {
-    color: "#E5E7EB",
+  locationHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 12,
+  },
+  sectionTitle: {
+    color: "#F9FAFB",
     fontSize: 18,
-    fontWeight: "600",
-    marginBottom: 8,
+    fontWeight: "700",
   },
   locationAddress: {
     color: "#9CA3AF",
     fontSize: 14,
     marginBottom: 16,
+    lineHeight: 20,
   },
-  mapsButton: {
-    backgroundColor: "rgba(168,85,247,0.2)",
-    borderWidth: 1,
-    borderColor: "#A855F7",
+  locationActionsRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  locationActionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(168,85,247,0.15)',
     borderRadius: 12,
     paddingVertical: 12,
-    paddingHorizontal: 16,
-    alignItems: "center",
-  },
-  mapsButtonText: {
-    color: "#A855F7",
-    fontSize: 14,
-    fontWeight: "600",
-  },
+borderWidth: 1.5,
+borderColor: 'rgba(168,85,247,0.4)',
+gap: 8,
+},
+locationActionEmoji: {
+fontSize: 18,
+},
+locationActionText: {
+fontSize: 14,
+fontWeight: '700',
+color: '#E9D5FF',
+},
+recentSection: {
+marginBottom: 24,
+},
+loadingContainer: {
+flexDirection: 'row',
+alignItems: 'center',
+justifyContent: 'center',
+padding: 24,
+gap: 12,
+},
+loadingText: {
+color: '#94A3B8',
+fontSize: 14,
+fontWeight: '500',
+},
+vibeCardsContainer: {
+  marginTop: 16,
+  gap: 12,
+},
+vibeCard: {
+  borderRadius: 16,
+  overflow: 'hidden',
+  borderWidth: 1.5,
+  borderColor: 'rgba(168,85,247,0.3)',
+},
+vibeCardGradient: {
+  padding: 16,
+},
+vibeCardHeader: {
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  marginBottom: 12,
+},
+vibeCardCrowdBadge: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  backgroundColor: 'rgba(0,0,0,0.3)',
+  borderRadius: 20,
+  paddingVertical: 6,
+  paddingHorizontal: 12,
+  gap: 6,
+},
+vibeCardCrowdEmoji: {
+  fontSize: 16,
+},
+vibeCardCrowdText: {
+  color: '#FFFFFF',
+  fontSize: 14,
+  fontWeight: '700',
+},
+vibeCardTime: {
+  color: 'rgba(255,255,255,0.7)',
+  fontSize: 12,
+  fontWeight: '600',
+},
+vibeCardDetails: {
+  flexDirection: 'row',
+  flexWrap: 'wrap',
+  gap: 8,
+},
+vibeCardTag: {
+  backgroundColor: 'rgba(0,0,0,0.4)',
+  borderRadius: 12,
+  paddingVertical: 6,
+  paddingHorizontal: 10,
+  borderWidth: 1,
+  borderColor: 'rgba(255,255,255,0.1)',
+},
+vibeCardTagText: {
+  color: '#FFFFFF',
+  fontSize: 12,
+  fontWeight: '600',
+},
+// Bar-specific vibe card styles
+barVibeHeaderLeft: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: 12,
+},
+barVibeTypeEmoji: {
+  fontSize: 32,
+},
+barVibeTypeText: {
+  color: '#FFFFFF',
+  fontSize: 16,
+  fontWeight: '700',
+},
+vibeCardTimeSmall: {
+  color: 'rgba(255,255,255,0.6)',
+  fontSize: 11,
+  fontWeight: '500',
+  marginTop: 2,
+},
+barVibePriceBadge: {
+  backgroundColor: 'rgba(245,158,11,0.25)',
+  borderRadius: 12,
+  paddingVertical: 8,
+  paddingHorizontal: 12,
+  borderWidth: 1,
+  borderColor: 'rgba(245,158,11,0.4)',
+},
+barVibePriceText: {
+  color: '#FCD34D',
+  fontSize: 13,
+  fontWeight: '700',
+},
+// Check-in card styles
+checkInCard: {
+  borderRadius: 16,
+  overflow: 'hidden',
+  borderWidth: 1.5,
+  borderColor: 'rgba(16,185,129,0.4)',
+},
+checkInHeaderLeft: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: 12,
+},
+checkInEmoji: {
+  fontSize: 24,
+},
+checkInLabel: {
+  color: '#6EE7B7',
+  fontSize: 14,
+  fontWeight: '700',
+},
+emptyState: {
+  backgroundColor: "#0B0625",
+  borderRadius: 16,
+  padding: 32,
+  alignItems: "center",
+  borderWidth: 1.5,
+  borderColor: "rgba(168,85,247,0.3)",
+  marginTop: 16,
+},
+emptyStateEmoji: {
+  fontSize: 48,
+  marginBottom: 12,
+},
+emptyStateText: {
+  color: "#FFFFFF",
+  fontSize: 18,
+  fontWeight: "700",
+  marginBottom: 4,
+},
+emptyStateSubtext: {
+  color: "#94A3B8",
+  fontSize: 14,
+},
 });
-

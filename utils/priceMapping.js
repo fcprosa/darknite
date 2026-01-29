@@ -29,35 +29,47 @@ export function mapCoverPriceToUI(dbValue) {
 }
 
 // ========== BAR DRINKS PRICE TIER (new system for bars only) ==========
-// Bar tier options
-export const BAR_DRINKS_TIER_OPTIONS = ["cheap", "normal", "expensive", "crazy"];
+// Bar tier options (must match DB check constraint vibes_drinks_price_tier_check)
+export const BAR_DRINKS_TIER_OPTIONS = ["cheap", "moderate", "pricey", "expensive"];
 
 // Bar tier UI labels (full display)
 export const BAR_TIER_UI_LABELS = {
-  cheap: "$ Cheap",
-  normal: "$$ Normal",
-  expensive: "$$$ Expensive",
-  crazy: "$$$$ Crazy",
+  cheap: "$",
+  moderate: "$$",
+  pricey: "$$$",
+  expensive: "$$$$"
 };
 
 // Bar tier symbols (short display for cards)
 export const BAR_TIER_SYMBOLS = {
   cheap: "$",
-  normal: "$$",
-  expensive: "$$$",
-  crazy: "$$$$",
+  moderate: "$$",
+  pricey: "$$$",
+  expensive: "$$$$",
 };
 
-// Map bar tier to full UI label
-export function mapBarTierToUI(tier) {
-  if (!tier) return null;
-  return BAR_TIER_UI_LABELS[tier] || null;
-}
-
-// Map bar tier to symbol (for cards)
+// Map bar tier to symbol only (for compact cards)
 export function mapBarTierToSymbol(tier) {
   if (!tier) return null;
   return BAR_TIER_SYMBOLS[tier] || null;
+}
+
+// Map bar tier to full display label (e.g., "Cheap $", "Moderate $$")
+export function mapBarTierToFullLabel(tier) {
+  if (!tier) return null;
+  const labels = {
+    cheap: "Cheap $",
+    moderate: "Moderate $$",
+    pricey: "Pricey $$$",
+    expensive: "Expensive $$$$",
+  };
+  return labels[tier] || null;
+}
+
+// Map bar tier to UI label (alias for symbol)
+export function mapBarTierToUI(tier) {
+  if (!tier) return null;
+  return BAR_TIER_UI_LABELS[tier] || null;
 }
 
 // ========== BACKWARD COMPATIBILITY ==========
@@ -65,10 +77,10 @@ export function mapBarTierToSymbol(tier) {
 export function mapLegacyDrinksPriceToTier(oldDbValue) {
   if (!oldDbValue) return null;
   const mapping = {
-    "$": "cheap",      // "< $10" -> cheap
-    "$$": "normal",    // "$10-20" -> normal
-    "$$$": "expensive", // "$20-30" -> expensive
-    "$$$$": "crazy",   // "$30+" -> crazy
+    "$": "cheap",
+    "$$": "moderate",
+    "$$$": "pricey",
+    "$$$$": "expensive",
   };
   return mapping[oldDbValue] || null;
 }

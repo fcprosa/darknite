@@ -11,8 +11,10 @@ import {
   Platform,
   Keyboard,
   TouchableWithoutFeedback,
+  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import * as AppleAuthentication from "expo-apple-authentication";
 import { useAuth } from "../contexts/AuthContext";
 import { validateUsername, checkUsernameAvailability, suggestUsernameVariants } from "../utils/usernameHelpers";
 
@@ -26,13 +28,14 @@ const validatePassword = (password) => {
 };
 
 export default function AuthModal({ visible, onClose, onGuestContinue }) {
-  const { signUp, signIn } = useAuth();
+  const { signUp, signIn, signInWithApple } = useAuth();
   const [activeTab, setActiveTab] = useState("signin"); // "signin" or "signup"
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [username, setUsername] = useState("");
   const [loading, setLoading] = useState(false);
+  const [appleLoading, setAppleLoading] = useState(false);
   const [error, setError] = useState(null);
   const [emailSent, setEmailSent] = useState(false);
   const [passwordError, setPasswordError] = useState(null);
@@ -40,6 +43,12 @@ export default function AuthModal({ visible, onClose, onGuestContinue }) {
   const [usernameError, setUsernameError] = useState(null);
   const [usernameSuggestions, setUsernameSuggestions] = useState([]);
   const [checkingUsername, setCheckingUsername] = useState(false);
+  const [appleSignInAvailable, setAppleSignInAvailable] = useState(false);
+
+  // Check if Apple Sign-In is available
+  useEffect(() => {
+    AppleAuthentication.isAvailableAsync().then(setAppleSignInAvailable);
+  }, []);
 
   // Reset form when modal opens/closes or tab changes
   useEffect(() => {
@@ -230,11 +239,29 @@ export default function AuthModal({ visible, onClose, onGuestContinue }) {
     }
   };
 
+  const handleAppleSignIn = async () => {
+    setError(null);
+    setAppleLoading(true);
+
+    try {
+      const { data, error: appleError } = await signInWithApple();
+
+      if (appleError) {
+        setError(appleError.message || "Apple Sign-In failed");
+      }
+      // Success is handled by AuthContext (closes modal automatically)
+    } catch (err) {
+      setError(err.message || "An error occurred");
+    } finally {
+      setAppleLoading(false);
+    }
+  };
+
   const isSignInValid = email.includes("@") && password.length > 0;
-  const isSignUpValid = 
-    email.includes("@") && 
+  const isSignUpValid =
+    email.includes("@") &&
     validateUsername(username).valid &&
-    validatePassword(password).valid && 
+    validatePassword(password).valid &&
     confirmPassword === password &&
     confirmPassword.length > 0 &&
     !usernameError;
@@ -413,8 +440,8 @@ export default function AuthModal({ visible, onClose, onGuestContinue }) {
                     <TouchableOpacity
                       style={[
                         styles.authSubmitButton,
-                        ((activeTab === "signin" && !isSignInValid) || 
-                         (activeTab === "signup" && !isSignUpValid) || 
+                        ((activeTab === "signin" && !isSignInValid) ||
+                         (activeTab === "signup" && !isSignUpValid) ||
                          loading) && styles.authSubmitButtonDisabled
                       ]}
                       onPress={activeTab === "signin" ? handleSignIn : handleSignUp}
@@ -426,18 +453,39 @@ export default function AuthModal({ visible, onClose, onGuestContinue }) {
                       activeOpacity={0.8}
                     >
                       <Text style={styles.authSubmitButtonText}>
-                        {loading 
+                        {loading
                           ? (activeTab === "signin" ? "Signing in..." : "Creating account...")
                           : (activeTab === "signin" ? "Sign In" : "Sign Up")
                         }
                       </Text>
                     </TouchableOpacity>
 
+                    {/* Divider */}
+                    {Platform.OS === "ios" && appleSignInAvailable && (
+                      <View style={styles.dividerContainer}>
+                        <View style={styles.dividerLine} />
+                        <Text style={styles.dividerText}>or</Text>
+                        <View style={styles.dividerLine} />
+                      </View>
+                    )}
+
+                    {/* Apple Sign-In Button (iOS only) */}
+                    {Platform.OS === "ios" && appleSignInAvailable && (
+                      <AppleAuthentication.AppleAuthenticationButton
+                        buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
+                        buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.WHITE}
+                        cornerRadius={12}
+                        style={styles.appleButton}
+                        onPress={handleAppleSignIn}
+                        disabled={loading || appleLoading}
+                      />
+                    )}
+
                     {/* Guest Option */}
                     <TouchableOpacity
                       style={styles.authGuestButton}
                       onPress={onGuestContinue || onClose}
-                      disabled={loading}
+                      disabled={loading || appleLoading}
                       activeOpacity={0.8}
                     >
                       <Text style={styles.authGuestButtonText}>Continue as Guest</Text>
@@ -672,6 +720,26 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 8,
     marginBottom: 16,
+  },
+  dividerContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginVertical: 16,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: "rgba(168,85,247,0.3)",
+  },
+  dividerText: {
+    color: "#6B7280",
+    fontSize: 14,
+    paddingHorizontal: 16,
+  },
+  appleButton: {
+    width: "100%",
+    height: 50,
+    marginBottom: 4,
   },
 });
 
