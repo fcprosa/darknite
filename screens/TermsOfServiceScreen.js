@@ -9,8 +9,9 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import IconButton from "../components/IconButton";
 
-const LAST_UPDATED = "January 2025";
+const LAST_UPDATED = "February 2026";
 const CONTACT_EMAIL = "support@darknite.app";
 
 export default function TermsOfServiceScreen({ navigation }) {
@@ -30,11 +31,11 @@ export default function TermsOfServiceScreen({ navigation }) {
     <View style={[styles.container, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={handleBack} style={styles.backButton}>
+        <IconButton onPress={handleBack}>
           <Ionicons name="arrow-back" size={24} color="#A855F7" />
-        </TouchableOpacity>
+        </IconButton>
         <Text style={styles.headerTitle}>Terms of Service</Text>
-        <View style={styles.headerRight} />
+        <View style={{ width: 44 }} />
       </View>
 
       <ScrollView
@@ -66,7 +67,7 @@ export default function TermsOfServiceScreen({ navigation }) {
         </Section>
 
         <Section title="User Content">
-          You may post content including vibes, check-ins, and other information
+          You may post content including vibes, moves, and other information
           ("User Content"). By posting, you grant us a non-exclusive, royalty-free
           license to use, display, and distribute your content within the App.
           {"\n\n"}

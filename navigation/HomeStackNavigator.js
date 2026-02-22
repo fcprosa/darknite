@@ -6,6 +6,7 @@ import VenuePickerScreen from "../components/VenuePickerScreen";
 import PostVibeScreen from "../components/PostVibeScreen";
 import VenueDetailsLovable from "../components/VenueDetailsLovable";
 import AnimatedPostVibeSheet from "../components/AnimatedPostVibeSheet";
+import SetMoveScreen from "../screens/SetMoveScreen";
 import { useAppContext } from "../contexts/AppContext";
 import { useAuth } from "../contexts/AuthContext";
 
@@ -59,6 +60,14 @@ export default function HomeStackNavigator() {
                 setSelectedVenue(venue);
                 setShowPostVibe(true);
               }}
+            />
+          )}
+        </Stack.Screen>
+        <Stack.Screen name="SetMove">
+          {({ navigation, route }) => (
+            <SetMoveScreen
+              navigation={navigation}
+              route={route}
             />
           )}
         </Stack.Screen>
@@ -131,6 +140,7 @@ export default function HomeStackNavigator() {
             return (
               <VenueDetailsLovable
                 venue={venue}
+                navigation={navigation}
                 onBack={() => navigation.goBack()}
                 onOpenSheet={(venue) => {
                   requireAuth(() => {

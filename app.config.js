@@ -20,16 +20,23 @@ module.exports = {
       usesAppleSignIn: true,
       infoPlist: {
         UIBackgroundModes: ["remote-notification"],
-      },
+        NSLocationWhenInUseUsageDescription: "DarkNite uses your location to show venues near you."
+      }
     },
     scheme: "darknite",
     plugins: [
       "expo-apple-authentication",
       [
+        "expo-location",
+        {
+          locationWhenInUsePermission: "DarkNite uses your location to show venues near you."
+        }
+      ],
+      [
         "expo-notifications",
         {
           icon: "./assets/icon.png",
-          color: "#A855F7",
+          color: "#A855F7"
         }
       ],
       [

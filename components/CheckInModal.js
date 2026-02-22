@@ -5,10 +5,10 @@ import {
   StyleSheet,
   TouchableOpacity,
   Modal,
-  SafeAreaView,
   Alert,
   ActivityIndicator,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../contexts/AuthContext";
 import { useAppContext } from "../contexts/AppContext";
 import { createCheckIn } from "../services/checkInService";
@@ -22,6 +22,7 @@ import * as Haptics from "expo-haptics";
  * BAR: Single step - Crowd level (Dead/Chill/Buzzing/Packed)
  */
 export default function CheckInModal({ visible, onClose, venue, onSuccess }) {
+  const insets = useSafeAreaInsets();
   const { user, isAuthenticated } = useAuth();
   const { upsertLatestBarCrowd, upsertLatestLineWait } = useAppContext();
   const [loading, setLoading] = useState(false);
@@ -183,7 +184,7 @@ onClose();
       transparent={true}
       onRequestClose={handleClose}
     >
-      <SafeAreaView style={styles.container}>
+      <View style={[styles.container, { paddingTop: insets.top }]}>
         <View style={styles.modal}>
           {/* Header */}
           <View style={styles.header}>
@@ -239,7 +240,7 @@ onClose();
             </TouchableOpacity>
           </View>
         </View>
-      </SafeAreaView>
+      </View>
     </Modal>
   );
 }

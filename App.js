@@ -3,7 +3,15 @@ import './utils/sentry';
 import { getSentry } from './utils/sentry';
 
 import React, { useRef, useEffect } from "react";
-import { View, StyleSheet } from "react-native";
+import { View, StyleSheet, StatusBar } from "react-native";
+import {
+  useFonts,
+  Inter_400Regular,
+  Inter_500Medium,
+  Inter_600SemiBold,
+  Inter_700Bold,
+  Inter_800ExtraBold,
+} from "@expo-google-fonts/inter";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { AppProvider, useAppContext } from "./contexts/AppContext";
@@ -119,8 +127,22 @@ function NotificationHandler() {
 
 // Wrap App component with Sentry if available
 const AppComponent = function App() {
+  const [fontsLoaded] = useFonts({
+    Inter_400Regular,
+    Inter_500Medium,
+    Inter_600SemiBold,
+    Inter_700Bold,
+    Inter_800ExtraBold,
+  });
+
+  // Hold render until fonts are cached — usually < 100ms after first install
+  if (!fontsLoaded) {
+    return <View style={{ flex: 1, backgroundColor: "#050013" }} />;
+  }
+
   return (
     <SafeAreaProvider>
+      <StatusBar barStyle="light-content" backgroundColor="#050013" />
       <View style={styles.container}>
         <NetworkProvider>
           <AuthProvider>

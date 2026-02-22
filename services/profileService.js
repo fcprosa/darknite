@@ -14,7 +14,7 @@ export async function getUserProfile(userId) {
   try {
     const { data, error } = await supabase
       .from("user_profiles")
-      .select("username, preferred_scene, favorite_genres, favorite_neighborhoods, going_out_days, reminders_enabled, notification_settings")
+      .select("username, preferred_scene, favorite_genres, favorite_neighborhoods, going_out_days, reminders_enabled")
       .eq("id", userId)
       .maybeSingle();
 

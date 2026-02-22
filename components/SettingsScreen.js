@@ -10,12 +10,13 @@ import {
   Linking,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../contexts/AuthContext";
 import { getUserProfile } from "../services/profileService";
 import { getUserStats } from "../services/userService";
-import { getLevelFromPoints } from "../utils/profileHelpers";
 import ChangePasswordModal from "./ChangePasswordModal";
 import LegalModal from "./LegalModal";
+import IconButton from "./IconButton";
 import { resetOnboarding } from "./OnboardingScreen";
 
 // Helper: Get initials from username (2 letters)
@@ -35,6 +36,7 @@ const formatMemberSince = (date) => {
 };
 
 export default function SettingsScreen({ navigation }) {
+  const insets = useSafeAreaInsets();
   const { user, signOut, deleteAccount } = useAuth();
   const [loading, setLoading] = useState(false);
   const [userProfile, setUserProfile] = useState(null);
@@ -76,23 +78,6 @@ export default function SettingsScreen({ navigation }) {
     }
   };
 
-  const handleEditProfile = () => {
-    // Fix: Navigate to ProfileSetup properly
-    try {
-      navigation.navigate("ProfileSetup");
-    } catch (error) {
-      // Fallback: try with ProfileTab parent
-      const parent = navigation.getParent();
-      if (parent) {
-        parent.navigate("ProfileTab", { screen: "ProfileSetup" });
-      }
-    }
-  };
-
-  const handlePrivacySettings = () => {
-    navigation.navigate("PrivacySettings");
-  };
-
   const handleNotificationSettings = () => {
     navigation.navigate("NotificationSettings");
   };
@@ -105,8 +90,15 @@ export default function SettingsScreen({ navigation }) {
         { text: "Cancel", style: "cancel" },
         {
           text: "Open Email",
-          onPress: () => {
-            Linking.openURL("mailto:support@darknite.app?subject=DarkNite Support Request");
+          onPress: async () => {
+            try {
+              await Linking.openURL("mailto:support@darknite.app?subject=DarkNite Support Request");
+            } catch (e) {
+              Alert.alert(
+                "Could not open mail app",
+                "Please email us directly at support@darknite.app"
+              );
+            }
           },
         },
       ]
@@ -114,11 +106,13 @@ export default function SettingsScreen({ navigation }) {
   };
 
   const handleShowTerms = () => {
-    navigation.navigate("TermsOfService");
+    setLegalType("terms");
+    setShowLegal(true);
   };
 
   const handleShowPrivacy = () => {
-    navigation.navigate("PrivacyPolicy");
+    setLegalType("privacy");
+    setShowLegal(true);
   };
 
   const handleSignOut = async () => {
@@ -168,23 +162,26 @@ export default function SettingsScreen({ navigation }) {
     );
   };
 
+  // Detect Apple Sign-In users — they have no password to change
+  const isAppleUser =
+    user?.app_metadata?.provider === "apple" ||
+    user?.app_metadata?.providers?.includes("apple");
+
   // Calculate user info
   const userName = userProfile?.username || user?.email?.split("@")[0] || "User";
   const userEmail = user?.email || "No email";
   const memberSince = formatMemberSince(user?.created_at);
-  const points = userStats?.points || 0;
-  const levelInfo = getLevelFromPoints(points);
 
   return (
     <>
       <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
         {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity onPress={handleBack} style={styles.backButton}>
+        <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
+          <IconButton onPress={handleBack}>
             <Ionicons name="arrow-back" size={24} color="#A855F7" />
-          </TouchableOpacity>
+          </IconButton>
           <Text style={styles.headerTitle}>Settings</Text>
-          <View style={styles.backButton} />
+          <View style={{ width: 44 }} />
         </View>
 
         {/* User Info Card */}
@@ -205,83 +202,38 @@ export default function SettingsScreen({ navigation }) {
               )}
             </View>
           </View>
-
-          {/* Quick Stats */}
-          {!loadingProfile && userStats && (
-            <View style={styles.quickStats}>
-              <View style={styles.quickStatItem}>
-                <Text style={styles.quickStatEmoji}>🔥</Text>
-                <Text style={styles.quickStatValue}>{points}</Text>
-                <Text style={styles.quickStatLabel}>Points</Text>
-              </View>
-              <View style={styles.quickStatDivider} />
-              <View style={styles.quickStatItem}>
-                <Text style={styles.quickStatEmoji}>{levelInfo.badge}</Text>
-                <Text style={styles.quickStatValue}>Level {levelInfo.level}</Text>
-                <Text style={styles.quickStatLabel}>Current</Text>
-              </View>
-              <View style={styles.quickStatDivider} />
-              <View style={styles.quickStatItem}>
-                <Text style={styles.quickStatEmoji}>🎉</Text>
-                <Text style={styles.quickStatValue}>{userStats.vibeCount || 0}</Text>
-                <Text style={styles.quickStatLabel}>Vibes</Text>
-              </View>
-            </View>
-          )}
         </View>
 
         {/* Account Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>ACCOUNT</Text>
-          <TouchableOpacity
-            style={[styles.actionRow, loading && styles.actionRowDisabled]}
-            onPress={handleEditProfile}
-            disabled={loading}
-          >
-            <View style={styles.actionRowIcon}>
-              <Ionicons name="create-outline" size={20} color="#A855F7" />
-            </View>
-            <Text style={styles.actionRowText}>Edit Profile</Text>
-            <Ionicons name="chevron-forward" size={20} color="#64748B" />
-          </TouchableOpacity>
-          
-          <TouchableOpacity
-            style={[styles.actionRow, loading && styles.actionRowDisabled]}
-            onPress={() => setShowChangePassword(true)}
-            disabled={loading}
-          >
-            <View style={styles.actionRowIcon}>
-              <Ionicons name="lock-closed-outline" size={20} color="#A855F7" />
-            </View>
-            <Text style={styles.actionRowText}>Change Password</Text>
-            <Ionicons name="chevron-forward" size={20} color="#64748B" />
-          </TouchableOpacity>
-          
-          <TouchableOpacity
-            style={[styles.actionRow, loading && styles.actionRowDisabled]}
-            onPress={handlePrivacySettings}
-            disabled={loading}
-          >
-            <View style={styles.actionRowIcon}>
-              <Ionicons name="shield-outline" size={20} color="#A855F7" />
-            </View>
-            <Text style={styles.actionRowText}>Privacy Settings</Text>
-            <Ionicons name="chevron-forward" size={20} color="#64748B" />
-          </TouchableOpacity>
-        </View>
+        {!isAppleUser && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>ACCOUNT</Text>
+            <TouchableOpacity
+              style={[styles.actionRow, loading && styles.actionRowDisabled]}
+              onPress={() => setShowChangePassword(true)}
+              disabled={loading}
+            >
+              <View style={styles.actionRowIcon}>
+                <Ionicons name="lock-closed-outline" size={20} color="#A855F7" />
+              </View>
+              <Text style={styles.actionRowText}>Change Password</Text>
+              <Ionicons name="chevron-forward" size={20} color="#64748B" />
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Preferences Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>PREFERENCES</Text>
           <TouchableOpacity
             style={[styles.actionRow, loading && styles.actionRowDisabled]}
-            onPress={handleEditProfile}
+            onPress={() => navigation.navigate("ProfileSetup", { jumpToStep: "days" })}
             disabled={loading}
           >
             <View style={styles.actionRowIcon}>
-              <Ionicons name="musical-notes-outline" size={20} color="#A855F7" />
+              <Ionicons name="calendar-outline" size={20} color="#A855F7" />
             </View>
-            <Text style={styles.actionRowText}>Update My Vibe</Text>
+            <Text style={styles.actionRowText}>Going-Out Days</Text>
             <Ionicons name="chevron-forward" size={20} color="#64748B" />
           </TouchableOpacity>
           
@@ -376,10 +328,6 @@ export default function SettingsScreen({ navigation }) {
               {loading ? "Deleting..." : "Delete Account"}
             </Text>
           </TouchableOpacity>
-
-          <Text style={styles.dangerZoneWarning}>
-            ⚠️ Deleting your account will permanently remove all your data, vibes, check-ins, and cannot be undone.
-          </Text>
         </View>
 
         {/* Dev Tools (for testing) */}
@@ -409,7 +357,7 @@ export default function SettingsScreen({ navigation }) {
         <View style={styles.footer}>
           <Text style={styles.footerText}>DarkNite</Text>
           <Text style={styles.footerVersion}>Version 1.0.0 (Beta)</Text>
-          <Text style={styles.footerCopyright}>© 2025 DarkNite. All rights reserved.</Text>
+          <Text style={styles.footerCopyright}>© 2026 DarkNite. All rights reserved.</Text>
         </View>
 
         <View style={{ height: 32 }} />
@@ -439,14 +387,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingTop: 16,
+    // paddingTop set dynamically via insets.top + 16
     paddingBottom: 16,
     borderBottomWidth: 1,
     borderBottomColor: "rgba(168,85,247,0.15)",
-  },
-  backButton: {
-    padding: 4,
-    width: 36,
   },
   headerTitle: {
     flex: 1,
@@ -503,37 +447,6 @@ const styles = StyleSheet.create({
   userInfoMember: {
     fontSize: 12,
     color: "#64748B",
-  },
-  quickStats: {
-    flexDirection: "row",
-    backgroundColor: "#1E1B2E",
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1.5,
-    borderColor: "rgba(168,85,247,0.3)",
-  },
-  quickStatItem: {
-    flex: 1,
-    alignItems: "center",
-  },
-  quickStatEmoji: {
-    fontSize: 24,
-    marginBottom: 6,
-  },
-  quickStatValue: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#FFFFFF",
-    marginBottom: 2,
-  },
-  quickStatLabel: {
-    fontSize: 11,
-    color: "#94A3B8",
-  },
-  quickStatDivider: {
-    width: 1,
-    backgroundColor: "rgba(168,85,247,0.2)",
-    marginHorizontal: 12,
   },
   section: {
     paddingHorizontal: 16,

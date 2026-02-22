@@ -91,9 +91,32 @@ export function mapDrinksPriceToUI(dbValue) {
   return mapCoverPriceToUI(dbValue);
 }
 
-// Legacy function for clubs (cover charge) - kept for backward compatibility  
+// Legacy function for clubs (cover charge) - kept for backward compatibility
 // @deprecated - Use mapCoverPriceToDB for clubs instead
 export function mapDrinksPriceToDB(uiLabel) {
   return mapCoverPriceToDB(uiLabel);
+}
+
+// Unified price tag display — returns "$" / "$$" / "$$$" / "$$$$"
+// Works for bar drink tiers (pass tier string) or cover (pass DB value)
+export function formatPriceTag(tierOrValue) {
+  return mapBarTierToSymbol(tierOrValue) || tierOrValue || null;
+}
+
+// ========== AGE RANGE FORMATTING ==========
+// Condense raw age_range values into short chip-friendly labels
+export function formatAgeRange(ageRange) {
+  if (!ageRange) return null;
+  const mapping = {
+    "18–25": "18-25",
+    "18-25": "18-25",
+    "25–30": "25-30",
+    "25-30": "25-30",
+    "30–35": "30-35",
+    "30-35": "30-35",
+    "35+": "35+",
+    "Mixed": "Mixed ages",
+  };
+  return mapping[ageRange] || ageRange;
 }
 

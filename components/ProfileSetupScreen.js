@@ -72,9 +72,11 @@ function OptionChip({ label, selected, onPress, disabled = false }) {
 export default function ProfileSetupScreen({ navigation, route }) {
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
-  const [currentStep, setCurrentStep] = useState(0);
+  const { jumpToStep } = route.params || {};
+  const [currentStep, setCurrentStep] = useState(jumpToStep === "days" ? 3 : 0);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const isJumpedToDays = jumpToStep === "days";
   
   // Form state
   const [preferredScene, setPreferredScene] = useState(null);
@@ -159,10 +161,9 @@ export default function ProfileSetupScreen({ navigation, route }) {
     setGoingOutDays(prev => {
       if (prev.includes(day)) {
         return prev.filter(d => d !== day);
-      } else if (prev.length < 3) {
+      } else {
         return [...prev, day];
       }
-      return prev;
     });
   };
 
@@ -211,6 +212,61 @@ export default function ProfileSetupScreen({ navigation, route }) {
   const handleSave = async () => {
     if (!user?.id) return;
 
+    // If jumped directly to days step, save going_out_days + wire notifications
+    if (isJumpedToDays) {
+      setSaving(true);
+      try {
+        const daysToSave = goingOutDays.length > 0 ? goingOutDays : [];
+
+        // 1. Save going_out_days
+        const { error } = await updateProfile({
+          id: user.id,
+          going_out_days: daysToSave,
+        });
+
+        if (error) {
+          console.error("[ProfileSetup] Error saving going_out_days:", error);
+          Alert.alert("Error", error.message || "Failed to save. Please try again.");
+          setSaving(false);
+          return;
+        }
+
+        // 2. Handle notifications
+        if (daysToSave.length > 0) {
+          try {
+            const granted = await requestNotificationPermission();
+            if (granted) {
+              await scheduleWeeklyReminders({
+                preferredScene: "both",
+                goingOutDays: daysToSave,
+                userId: user.id,
+              });
+              await updateProfile({ id: user.id, reminders_enabled: true });
+            }
+          } catch (e) {
+            console.error("[ProfileSetup] Error setting up notifications:", e);
+            // Non-critical — don't block navigation
+          }
+        } else {
+          try {
+            await cancelExistingReminders(user.id);
+            await updateProfile({ id: user.id, reminders_enabled: false });
+          } catch (e) {
+            console.error("[ProfileSetup] Error canceling reminders:", e);
+            // Non-critical — don't block navigation
+          }
+        }
+
+        navigation.goBack();
+      } catch (e) {
+        console.error("[ProfileSetup] Error:", e);
+        Alert.alert("Error", "An unexpected error occurred. Please try again.");
+        setSaving(false);
+      }
+      return;
+    }
+
+    // Original full save logic for normal flow
     // Fetch username if we don't have it (shouldn't happen, but handle gracefully)
     let usernameToSave = existingUsername;
     if (!usernameToSave) {
@@ -333,23 +389,29 @@ export default function ProfileSetupScreen({ navigation, route }) {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={insets.top}
     >
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 16) + 10 }]}>
         <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
           <Ionicons name="arrow-back" size={24} color="#F9FAFB" />
         </TouchableOpacity>
         <View style={styles.headerTitleContainer}>
-          <Text style={styles.headerTitle}>Profile Setup</Text>
-          <Text style={styles.headerSubtitle}>
-            Step {currentStep + 1} of {TOTAL_STEPS}
+          <Text style={styles.headerTitle}>
+            {isJumpedToDays ? "Going-Out Days" : "Profile Setup"}
           </Text>
+          {!isJumpedToDays && (
+            <Text style={styles.headerSubtitle}>
+              Step {currentStep + 1} of {TOTAL_STEPS}
+            </Text>
+          )}
         </View>
         <View style={styles.backButton} />
       </View>
 
       {/* Progress Bar */}
-      <View style={styles.progressBarContainer}>
-        <View style={[styles.progressBar, { width: `${progress * 100}%` }]} />
-      </View>
+      {!isJumpedToDays && (
+        <View style={styles.progressBarContainer}>
+          <View style={[styles.progressBar, { width: `${progress * 100}%` }]} />
+        </View>
+      )}
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         <Animated.View style={[styles.stepContent, { opacity: fadeAnim }]}>
@@ -416,7 +478,7 @@ export default function ProfileSetupScreen({ navigation, route }) {
             <View style={styles.step}>
               <Text style={styles.stepTitle}>Going out days</Text>
               <Text style={styles.stepDescription}>
-                Pick up to 3 days (optional)
+                Pick your usual nights
               </Text>
               <View style={styles.optionsContainer}>
                 {[
@@ -433,7 +495,6 @@ export default function ProfileSetupScreen({ navigation, route }) {
                     label={day.label}
                     selected={goingOutDays.includes(day.code)}
                     onPress={() => toggleGoingOutDay(day.code)}
-                    disabled={!goingOutDays.includes(day.code) && goingOutDays.length >= 3}
                   />
                 ))}
               </View>
@@ -443,21 +504,21 @@ export default function ProfileSetupScreen({ navigation, route }) {
       </ScrollView>
 
       <View style={styles.footer}>
-        {currentStep > 0 && (
+        {!isJumpedToDays && currentStep > 0 && (
           <TouchableOpacity style={styles.backButtonFooter} onPress={handleBack}>
             <Text style={styles.backButtonText}>Back</Text>
           </TouchableOpacity>
         )}
         <TouchableOpacity
           style={[styles.nextButton, (!canProceed || saving) && styles.nextButtonDisabled]}
-          onPress={currentStep === TOTAL_STEPS - 1 ? handleSave : handleNext}
+          onPress={isJumpedToDays || currentStep === TOTAL_STEPS - 1 ? handleSave : handleNext}
           disabled={!canProceed || saving}
         >
           {saving ? (
             <ActivityIndicator size="small" color="#FFFFFF" />
           ) : (
             <Text style={styles.nextButtonText}>
-              {currentStep === TOTAL_STEPS - 1 ? "Save" : "Next"}
+              {isJumpedToDays || currentStep === TOTAL_STEPS - 1 ? "Save" : "Next"}
             </Text>
           )}
         </TouchableOpacity>
@@ -480,7 +541,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingTop: 16,
     paddingBottom: 12,
     paddingHorizontal: 16,
     borderBottomWidth: 1,

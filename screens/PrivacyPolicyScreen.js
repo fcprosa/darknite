@@ -9,8 +9,9 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import IconButton from "../components/IconButton";
 
-const LAST_UPDATED = "January 2025";
+const LAST_UPDATED = "February 2026";
 const CONTACT_EMAIL = "privacy@darknite.app";
 const WEBSITE_URL = "https://darknite.app";
 
@@ -31,11 +32,11 @@ export default function PrivacyPolicyScreen({ navigation }) {
     <View style={[styles.container, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={handleBack} style={styles.backButton}>
+        <IconButton onPress={handleBack}>
           <Ionicons name="arrow-back" size={24} color="#A855F7" />
-        </TouchableOpacity>
+        </IconButton>
         <Text style={styles.headerTitle}>Privacy Policy</Text>
-        <View style={styles.headerRight} />
+        <View style={{ width: 44 }} />
       </View>
 
       <ScrollView
@@ -59,7 +60,7 @@ export default function PrivacyPolicyScreen({ navigation }) {
             <Bold>Profile Information:</Bold> Your preferences including favorite neighborhoods, music genres, and going out schedule.
           </BulletPoint>
           <BulletPoint>
-            <Bold>Activity Data:</Bold> Check-ins, vibes you post, and venues you interact with.
+            <Bold>Activity Data:</Bold> Vibes you post, moves you set, and venues you interact with.
           </BulletPoint>
           <BulletPoint>
             <Bold>Device Information:</Bold> Device type, operating system, and app version for troubleshooting.

@@ -4,16 +4,17 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  SafeAreaView,
   Alert,
   ActivityIndicator,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../contexts/AuthContext";
 import { createVibe } from "../services/vibeService";
 import { useAppContext } from "../contexts/AppContext";
 import * as Haptics from "expo-haptics";
 
 export default function VibeReportScreen({ route, navigation }) {
+  const insets = useSafeAreaInsets();
   const { user, isAuthenticated } = useAuth();
   const { upsertLatestVibe } = useAppContext();
   const { venue, venueId, venueName } = route.params || {};
@@ -91,7 +92,7 @@ export default function VibeReportScreen({ route, navigation }) {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.header}>
         <TouchableOpacity onPress={handleSkip} style={styles.skipButton}>
           <Text style={styles.skipButtonText}>Skip</Text>
@@ -186,7 +187,7 @@ export default function VibeReportScreen({ route, navigation }) {
           )}
         </TouchableOpacity>
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 

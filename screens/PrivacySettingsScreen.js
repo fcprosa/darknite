@@ -10,10 +10,13 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../contexts/AuthContext";
+import IconButton from "../components/IconButton";
 import { supabase } from "../utils/supabase";
 
 export default function PrivacySettingsScreen({ navigation }) {
+  const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -21,7 +24,7 @@ export default function PrivacySettingsScreen({ navigation }) {
   // Privacy settings
   const [profilePublic, setProfilePublic] = useState(true);
   const [showActivity, setShowActivity] = useState(true);
-  const [showCheckIns, setShowCheckIns] = useState(true);
+  const [showMoves, setShowMoves] = useState(true);
   const [allowMessages, setAllowMessages] = useState(true);
 
   useEffect(() => {
@@ -45,7 +48,7 @@ export default function PrivacySettingsScreen({ navigation }) {
         const settings = data.privacy_settings;
         setProfilePublic(settings.profilePublic ?? true);
         setShowActivity(settings.showActivity ?? true);
-        setShowCheckIns(settings.showCheckIns ?? true);
+        setShowMoves(settings.showMoves ?? true);
         setAllowMessages(settings.allowMessages ?? true);
       }
     } catch (error) {
@@ -81,7 +84,7 @@ export default function PrivacySettingsScreen({ navigation }) {
     const newSettings = {
       profilePublic,
       showActivity,
-      showCheckIns,
+      showMoves,
       allowMessages,
       [key]: value,
     };
@@ -94,8 +97,8 @@ export default function PrivacySettingsScreen({ navigation }) {
       case "showActivity":
         setShowActivity(value);
         break;
-      case "showCheckIns":
-        setShowCheckIns(value);
+      case "showMoves":
+        setShowMoves(value);
         break;
       case "allowMessages":
         setAllowMessages(value);
@@ -122,12 +125,12 @@ export default function PrivacySettingsScreen({ navigation }) {
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
       {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={handleBack} style={styles.backButton}>
+      <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
+        <IconButton onPress={handleBack}>
           <Ionicons name="arrow-back" size={24} color="#A855F7" />
-        </TouchableOpacity>
+        </IconButton>
         <Text style={styles.headerTitle}>Privacy Settings</Text>
-        <View style={styles.backButton} />
+        <View style={{ width: 44 }} />
       </View>
 
       {/* Info Card */}
@@ -182,14 +185,14 @@ export default function PrivacySettingsScreen({ navigation }) {
 
         <View style={styles.settingRow}>
           <View style={styles.settingInfo}>
-            <Text style={styles.settingTitle}>Show Check-ins</Text>
+            <Text style={styles.settingTitle}>Show Moves</Text>
             <Text style={styles.settingDescription}>
-              Display your venue check-ins to other users
+              Display your move declarations to other users
             </Text>
           </View>
           <Switch
-            value={showCheckIns}
-            onValueChange={(value) => handleToggle("showCheckIns", value)}
+            value={showMoves}
+            onValueChange={(value) => handleToggle("showMoves", value)}
             trackColor={{ false: "#475569", true: "#A855F7" }}
             thumbColor="#FFFFFF"
             disabled={saving || !profilePublic}
@@ -249,14 +252,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingTop: 16,
+    // paddingTop set dynamically via insets.top + 16
     paddingBottom: 16,
     borderBottomWidth: 1,
     borderBottomColor: "rgba(168,85,247,0.15)",
-  },
-  backButton: {
-    padding: 4,
-    width: 36,
   },
   headerTitle: {
     flex: 1,

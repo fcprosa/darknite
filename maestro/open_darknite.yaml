@@ -1,0 +1,22 @@
+appId: host.exp.Exponent
+---
+- launchApp
+- waitForAnimationToEnd
+
+# If Expo Go shows the Home list, tap your project.
+# Try tapping by visible text. Replace DARKNITE_TEXT if needed.
+- tapOn:
+    text: "darknite"
+    optional: true
+
+- tapOn:
+    text: "DarkNite"
+    optional: true
+
+- tapOn:
+    text: "dark nite"
+    optional: true
+
+# Wait a bit for the app to load
+- waitForAnimationToEnd
+- takeScreenshot: "02-darknite-opened"

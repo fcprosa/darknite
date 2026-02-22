@@ -1,0 +1,11 @@
+appId: host.exp.Exponent
+---
+- launchApp
+- waitForAnimationToEnd
+- tapOn:
+    text: "DarkNite"
+    optional: true
+- waitForAnimationToEnd
+- takeScreenshot: "03-in-app"
+- scroll
+- takeScreenshot: "04-after-scroll"

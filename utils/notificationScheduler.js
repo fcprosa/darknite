@@ -82,21 +82,32 @@ export async function cancelExistingReminders(userId) {
 }
 
 /**
- * Map day code to Expo weekday (1=Sunday, 2=Monday, ..., 7=Saturday)
+ * Calculate the exact next Date for a given day code at a specific hour and minute.
+ * Uses JS Date day numbers (0=Sunday … 6=Saturday).
+ * If today IS the target weekday but the time has already passed, returns next week's occurrence.
  * @param {string} dayCode - Day code (mon, tue, wed, thu, fri, sat, sun)
- * @returns {number} Expo weekday number
+ * @param {number} hour - 24-hour hour
+ * @param {number} minute - Minute
+ * @returns {Date} The next future Date at exactly hour:minute for that weekday
  */
-function mapDayCodeToWeekday(dayCode) {
-  const mapping = {
-    sun: 1,
-    mon: 2,
-    tue: 3,
-    wed: 4,
-    thu: 5,
-    fri: 6,
-    sat: 7,
-  };
-  return mapping[dayCode] || 2; // Default to Monday
+function getNextWeekdayDate(dayCode, hour, minute) {
+  const dayCodeToJSDay = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+  const targetDay = dayCodeToJSDay[dayCode] ?? 1; // default to Monday
+
+  const now = new Date();
+  const candidate = new Date(now);
+  candidate.setHours(hour, minute, 0, 0);
+
+  const currentDay = now.getDay();
+  let daysAhead = targetDay - currentDay;
+
+  // Same day but the time has already passed → push to next week's occurrence
+  if (daysAhead < 0 || (daysAhead === 0 && candidate.getTime() <= now.getTime())) {
+    daysAhead += 7;
+  }
+
+  candidate.setDate(now.getDate() + daysAhead);
+  return candidate;
 }
 
 /**
@@ -196,8 +207,9 @@ export async function scheduleWeeklyReminders({ preferredScene, goingOutDays, us
     return [];
   }
 
-  const { hour, minute } = getNotificationTime(preferredScene);
-  const message = getNotificationMessage(preferredScene);
+  const hour = 21;
+  const minute = 30;
+  const message = "NYC is waking up. Check the live vibes or drop one if you're already out!";
 
   // Check if settings changed - if not, skip re-scheduling
   const newSignature = generateReminderSignature({ goingOutDays, preferredScene, hour, minute });
@@ -234,11 +246,10 @@ export async function scheduleWeeklyReminders({ preferredScene, goingOutDays, us
 
   try {
     for (const dayCode of goingOutDays) {
-      const weekday = mapDayCodeToWeekday(dayCode);
+      // Compute the exact next Date for this weekday at 21:30, guaranteed to be in the future
+      const triggerDate = getNextWeekdayDate(dayCode, hour, minute);
 
-      // 3. Schedule with WEEKLY trigger ONLY: { weekday, hour, minute, repeats: true }
-      // NO trigger: null, NO seconds-based triggers, NO immediate triggers
-      const title = getNotificationTitle(preferredScene);
+      const title = "What's the move tonight? 👀";
       const notificationId = await Notifications.scheduleNotificationAsync({
         content: {
           title,
@@ -251,15 +262,12 @@ export async function scheduleWeeklyReminders({ preferredScene, goingOutDays, us
           },
         },
         trigger: {
-          weekday,
-          hour,
-          minute,
-          repeats: true,
+          date: triggerDate,
         },
       });
 
       notificationIds.push(notificationId);
-      console.log(`[NotificationScheduler] Scheduled reminder for ${dayCode} at ${hour}:${minute.toString().padStart(2, "0")}`);
+      console.log(`[NotificationScheduler] Scheduled reminder for ${dayCode} at ${triggerDate.toISOString()}`);
     }
 
     // 4. Persist new IDs and signature

@@ -21,13 +21,12 @@ import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
 import { validateVenueType, isBar as isBarHelper } from "../utils/venueHelpers";
 import { mapCoverPriceToUI, mapBarTierToSymbol, mapBarTierToUI, mapLegacyDrinksPriceToTier } from "../utils/priceMapping";
-import { formatTimeAgo } from "../utils/timeHelpers";
+import { formatTimeAgo, formatVibeRecency } from "../utils/timeHelpers";
 import { getDisplayValue } from "../utils/displayHelpers";
 import { getDisplayRatio } from "../utils/vibeHelpers";
 import { useAuth } from "../contexts/AuthContext";
 import { useAppContext } from "../contexts/AppContext";
 import { getCheckInCount, getLatestLineWait, getLatestBarCrowdCheckIn } from "../services/checkInService";
-import CheckInModal from "./CheckInModal";
 
 function getMusicEmoji(music) {
   if (!music) return "🎵";
@@ -127,9 +126,9 @@ export default function VenueCardLovable({ venue, latestVibe, onPress, onPostVib
   const { latestBarCrowdByVenueId, latestLineWaitByVenueId, upsertLatestBarCrowd, upsertLatestLineWait } = useAppContext();  const scaleAnim = useRef(new Animated.Value(1)).current;
   const bannerOpacity = useRef(new Animated.Value(0)).current;
   const bannerTranslateY = useRef(new Animated.Value(-100)).current;
+  const livePulseAnim = useRef(new Animated.Value(1)).current;
   const [showLastVibe, setShowLastVibe] = useState(false);
   const [checkInCount, setCheckInCount] = useState(0);
-  const [showCheckInModal, setShowCheckInModal] = useState(false);
   const [latestLineWait, setLatestLineWait] = useState(null); // For clubs: line from check_ins
   const [latestBarCrowd, setLatestBarCrowd] = useState(null); // For bars: crowd from check_ins
 
@@ -145,6 +144,7 @@ export default function VenueCardLovable({ venue, latestVibe, onPress, onPostVib
   // Check if we have vibe data
   const hasVibe = !!latestVibe;
   const isHot = useMemo(() => isHotVibe(latestVibe), [latestVibe]);
+  const isRecent = latestVibe?.isRecent === true;
   
   // Log error if venue type is invalid
   if (!venueTypeValidation.valid) {
@@ -333,6 +333,34 @@ export default function VenueCardLovable({ venue, latestVibe, onPress, onPostVib
   };
 
 
+  // Pulsing animation for LIVE indicator
+  useEffect(() => {
+    if (!isRecent) {
+      livePulseAnim.setValue(1);
+      return;
+    }
+
+    const pulseAnimation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(livePulseAnim, {
+          toValue: 1.15,
+          duration: 1000,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(livePulseAnim, {
+          toValue: 1,
+          duration: 1000,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+
+    pulseAnimation.start();
+    return () => pulseAnimation.stop();
+  }, [isRecent, livePulseAnim]);
+
   // Load check-in count on mount
   useEffect(() => {
     let mounted = true;
@@ -392,50 +420,6 @@ useEffect(() => {
   return () => { mounted = false; };
 }, [venue?.id, isBar, isClub, latestBarCrowdByVenueId, latestLineWaitByVenueId]);
 
-  const handleCheckIn = () => {
-    if (!isAuthenticated || !user) {
-      Alert.alert("Sign in required", "Please sign in to check in");
-      return;
-    }
-    setShowCheckInModal(true);
-  };
-
-  const handleCheckInSuccess = () => {
-    async function refreshData() {
-      if (!venue?.id) return;
-      
-      const [countResult, lineResult, barCrowdResult] = await Promise.all([
-        getCheckInCount(venue.id, 60),
-        isClub ? getLatestLineWait(venue.id, 120) : Promise.resolve({ data: null, error: null }),
-        isBar ? getLatestBarCrowdCheckIn(venue.id, 240) : Promise.resolve({ data: null, error: null }),
-      ]);
-      
-      setCheckInCount(countResult.count || 0);
-      
-      if (isClub && lineResult.data) {
-        const lineWait = lineResult.data.line_wait || null;
-        setLatestLineWait(lineWait);
-        // ✨ Update AppContext
-        if (lineWait) {
-          upsertLatestLineWait(venue.id, lineWait);
-        }
-      }
-      
-      if (isBar) {
-        if (barCrowdResult.error) {
-          console.error("[VenueCard] Error refreshing bar crowd:", barCrowdResult.error);
-        } else {
-          const barCrowdData = barCrowdResult.data || null;
-          setLatestBarCrowd(barCrowdData);
-          // ✨ Update AppContext
-          if (barCrowdData) {
-            upsertLatestBarCrowd(venue.id, barCrowdData);
-          }
-        }
-      }
-    }
-    refreshData();
-  };
 
   const address = venue?.address || null;
   const neighborhood = venue?.neighborhood || null;
@@ -451,24 +435,65 @@ useEffect(() => {
     <Animated.View style={{ transform: [{ scale: scaleAnim }] }} collapsable={false}>
       <View style={styles.cardContainer} collapsable={false}>
         {/* Main Card Content */}
-        <Pressable onPress={handleCardPress} style={styles.card}>
+        <Pressable onPress={handleCardPress} style={[styles.card, isRecent && styles.cardLive]}>
+          {/* LIVE Border Glow - Pulsing gold border when recent */}
+          {isRecent && (
+            <Animated.View
+              style={[
+                styles.liveBorderGlow,
+                {
+                  opacity: livePulseAnim.interpolate({
+                    inputRange: [1, 1.15],
+                    outputRange: [0.6, 1],
+                  }),
+                  transform: [
+                    {
+                      scale: livePulseAnim.interpolate({
+                        inputRange: [1, 1.15],
+                        outputRange: [1, 1.02],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+              pointerEvents="none"
+            />
+          )}
           <View style={styles.cardContent}>
             {/* Scrollable Content Area */}
             <View style={styles.cardScrollableContent}>
-              {/* Top Badge Row - Crowd Headline - Show only if headline exists */}
-              {showHeadline && (
-                <View style={styles.topBadgeRow}>
+              {/* Top Badge Row - LIVE Badge + Crowd Headline */}
+              <View style={styles.topBadgeRow}>
+                {/* LIVE Badge - Show when vibe is recent */}
+                {isRecent && (
+                  <Animated.View
+                    style={[
+                      styles.liveBadge,
+                      {
+                        opacity: livePulseAnim.interpolate({
+                          inputRange: [1, 1.15],
+                          outputRange: [0.9, 1],
+                        }),
+                      },
+                    ]}
+                  >
+                    <View style={styles.liveBadgeDot} />
+                    <Text style={styles.liveBadgeText}>LIVE</Text>
+                  </Animated.View>
+                )}
+                {/* Crowd Headline - Show only if headline exists */}
+                {showHeadline && (
                   <View style={[styles.crowdBadge, { backgroundColor: crowdBadgeStyle.bg, borderColor: crowdBadgeStyle.border }]}>
                     <Text style={styles.crowdBadgeEmoji}>{crowdEmoji}</Text>
                     <Text style={styles.crowdBadgeText}>
                       {crowdLabel}
                       {headlineTime && (
-                        <> • {formatTimeAgo(headlineTime, true)}</>
+                        <> • {formatVibeRecency(headlineTime)}</>
                       )}
                     </Text>
                   </View>
-                </View>
-              )}
+                )}
+              </View>
 
               {/* Title Block */}
               <View style={styles.titleBlock}>
@@ -498,12 +523,14 @@ useEffect(() => {
                 )}
               </View>
 
-              {/* Check-in Count Badge - Reserve space when hidden */}
-                <View style={[styles.checkInBadge, checkInCount === 0 && styles.reserveSpaceHidden]}>
-                  <Text style={styles.checkInBadgeText}>
-                    👥 {checkInCount} checked in (last 60 min)
-                  </Text>
-                </View>
+              {/* Check-in Count Badge - Only show when count > 0 */}
+                {checkInCount > 0 && (
+                  <View style={styles.checkInBadge}>
+                    <Text style={styles.checkInBadgeText}>
+                      👥 {checkInCount} here recently
+                    </Text>
+                  </View>
+                )}
 
                 {/* Ratio Block - Conditional rendering: clubs always show, bars only if ratioInfo.show */}
                 {/* For bars without vibes: completely removed (saves 65px) */}
@@ -551,29 +578,22 @@ useEffect(() => {
                   ))}
                 </View>
 
-                {/* No Vibes State Message - Reserve space when hidden */}
-                <View style={[styles.noVibesContainer, hasVibe && styles.reserveSpaceHidden]}>
-                  <Text style={styles.noVibesText}>There are no vibes yet</Text>
-                  <Text style={styles.noVibesSubtext}>Be the first one</Text>
-                </View>
+                {/* Status line when no vibes - show historical prediction instead of empty state */}
+                {!hasVibe && venue?.venue_type && (
+                  <View style={{ paddingVertical: 4, alignItems: "center", marginTop: 2, marginBottom: 4 }}>
+                    <Text style={{ color: "#94A3B8", fontSize: 13, fontWeight: "600" }}>
+                      {venue?.venue_type?.toLowerCase() === "club" 
+                        ? "Usually peaks around 11:30 on Friday nights"
+                        : "Usually picks up around 10 on Friday nights"}
+                    </Text>
+                  </View>
+                )}
               </View>
 
               {/* Actions Row - ALWAYS rendered at bottom, regardless of vibe/check-in status */}
               {/* Shows for both clubs and bars, with or without vibes, with or without check-ins */}
               <View style={styles.actionsRow} onStartShouldSetResponder={() => true}>
-                {/* Check-in Button - Show for both clubs and bars when authenticated */}
-                {/* Always visible when user is logged in, regardless of vibe/check-in status */}
-                {isAuthenticated && (
-                  <TouchableOpacity
-                    style={styles.checkInButton}
-                    onPress={handleCheckIn}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.checkInButtonText}>✓ I'm here</Text>
-                  </TouchableOpacity>
-                )}
-                
-                {/* Post Vibe Button - ALWAYS show for both clubs and bars */}
+                {/* I'm Here Button - ALWAYS show for both clubs and bars */}
                 {/* Always visible regardless of vibe status, check-in status, or venue type */}
                 <TouchableOpacity
                   style={styles.primaryButton}
@@ -583,7 +603,7 @@ useEffect(() => {
                   }}
                   activeOpacity={0.7}
                 >
-                  <Text style={styles.primaryButtonText}>+ Post Vibe</Text>
+                  <Text style={styles.primaryButtonText}>📍 I'm Here</Text>
                 </TouchableOpacity>
                 
                 <View style={styles.secondaryActions}>
@@ -624,7 +644,7 @@ useEffect(() => {
             <View style={styles.bannerContent}>
               <View style={styles.bannerHeader}>
                 <Text style={styles.bannerTitle}>
-                  🔥 LAST VIBE • {formatTimeAgo(latestVibe.created_at, true).toUpperCase()}
+                  🔥 LAST VIBE • {formatVibeRecency(latestVibe.created_at).toUpperCase()}
                 </Text>
                 <TouchableOpacity
                   onPress={handleCloseBanner}
@@ -655,13 +675,6 @@ useEffect(() => {
         )}
       </View>
       
-      {/* Check-in Modal */}
-      <CheckInModal
-        visible={showCheckInModal}
-        onClose={() => setShowCheckInModal(false)}
-        venue={venue}
-        onSuccess={handleCheckInSuccess}
-      />
     </Animated.View>
   );
 }
@@ -691,6 +704,60 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 12,
     elevation: 8,
+    position: "relative",
+  },
+  cardLive: {
+    borderColor: "rgba(245, 158, 11, 0.6)", // Gold border when live
+    borderWidth: 2,
+    shadowColor: "#F59E0B",
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+  },
+  liveBorderGlow: {
+    position: "absolute",
+    top: -2,
+    left: -2,
+    right: -2,
+    bottom: -2,
+    borderRadius: 22,
+    borderWidth: 2,
+    borderColor: "#F59E0B", // Gold
+    backgroundColor: "transparent",
+    zIndex: -1,
+  },
+  liveBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(245, 158, 11, 0.15)",
+    borderRadius: 16,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderWidth: 1.5,
+    borderColor: "rgba(245, 158, 11, 0.5)",
+    gap: 6,
+    shadowColor: "#F59E0B",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  liveBadgeDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#F59E0B",
+    shadowColor: "#F59E0B",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.9,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  liveBadgeText: {
+    color: "#FBBF24", // Brighter gold text
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 1,
+    textTransform: "uppercase",
   },
   cardContent: {
     width: "100%",
@@ -732,7 +799,10 @@ const styles = StyleSheet.create({
   topBadgeRow: {
     marginBottom: 6, // REDUCED from 8 to 6
     minHeight: 26, // REDUCED from 28 to 26
-    justifyContent: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
   },
   crowdBadge: {
     flexDirection: "row",

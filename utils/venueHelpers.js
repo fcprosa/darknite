@@ -103,4 +103,63 @@ export function inferVenueType(venue) {
   // Default to club (more common in nightlife apps)
   return "club";
 }
+/**
+ * Smart Merge Strategy
+ * Fills data gaps to ensure the UI is never empty.
+ * If the latest vibe only has "Crowd", it pulls "Music" from the previous vibe or venue history.
+ *
+ * @param {Object} latestVibe - The most recent vibe (may have null fields)
+ * @param {Object} venue - The venue object (for historical defaults)
+ * @param {Array} recentHistory - List of recent vibes (to backfill missing data)
+ */
+export function mergeRecentVibes(latestVibe, venue, recentHistory = []) {
+  // 1. Venue Defaults (Historical/Static fallback)
+  const defaults = {
+    crowd: venue?.typical_crowd || "Chill",
+    music: venue?.usual_music || "Mixed",
+    line: venue?.usual_line || "No info",
+    cover: venue?.usual_cover || null,
+  };
 
+  // If no live vibe exists, return defaults with isLive: false
+  if (!latestVibe) {
+    return { ...defaults, isLive: false };
+  }
+
+  // 2. Start with the latest vibe data
+  let merged = {
+    crowd: latestVibe.crowd,
+    music: latestVibe.music,
+    line: latestVibe.line,
+    cover: latestVibe.cover,
+    timestamp: latestVibe.created_at,
+    isLive: true
+  };
+
+  // 3. Fill the gaps (If music/line/cover are missing in the latest vibe)
+  // Look back 90 minutes in history
+  if (!merged.music || !merged.line || !merged.cover) {
+    const validHistory = Array.isArray(recentHistory) ? recentHistory.filter(v => 
+      v.id !== latestVibe.id && 
+      (new Date().getTime() - new Date(v.created_at).getTime()) < 90 * 60 * 1000
+    ) : [];
+
+    for (const pastVibe of validHistory) {
+      if (!merged.music && pastVibe.music) merged.music = pastVibe.music;
+      if (!merged.line && pastVibe.line) merged.line = pastVibe.line;
+      if (!merged.cover && pastVibe.cover) merged.cover = pastVibe.cover;
+      
+      // Stop if we have filled all gaps
+      if (merged.music && merged.line && merged.cover) break;
+    }
+  }
+
+  // 4. Final fallback to venue defaults if gaps remain
+  return {
+    crowd: merged.crowd || defaults.crowd,
+    music: merged.music || defaults.music,
+    line: merged.line || defaults.line,
+    cover: merged.cover || defaults.cover,
+    isLive: true
+  };
+}

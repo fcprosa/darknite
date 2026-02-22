@@ -146,7 +146,7 @@ export function AuthProvider({ children }) {
         const normalizedUsername = username.trim().toLowerCase();
         const { error: profileError } = await supabase
           .from("user_profiles")
-          .insert({
+          .upsert({
             id: data.user.id,
             username: normalizedUsername,
           });
@@ -158,8 +158,8 @@ export function AuthProvider({ children }) {
           throw new Error(profileError.message || "Failed to create profile");
         }
 
-        // After successful signup, set pendingNav to ProfileSetup
-        setPendingNav({ name: "ProfileSetup" });
+        // After successful signup, jump directly to days selection
+        setPendingNav({ name: "ProfileSetup", params: { jumpToStep: "days" } });
       }
 
       return { data, error: null };
@@ -265,8 +265,8 @@ export function AuthProvider({ children }) {
             console.error("[Auth] Apple profile creation error:", profileError);
             // Don't throw - user is already signed in, they can set username later
           } else {
-            // New user - send to profile setup
-            setPendingNav({ name: "ProfileSetup" });
+            // New user - jump directly to days selection
+            setPendingNav({ name: "ProfileSetup", params: { jumpToStep: "days" } });
           }
         }
       }
@@ -296,10 +296,14 @@ export function AuthProvider({ children }) {
 
   const deleteAccount = async () => {
     try {
-      // Note: This requires admin privileges or a server-side function
-      // In production, you'd call a Supabase Edge Function to delete the user
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
+      // 1. Call the secure RPC function to delete the user from the database
+      const { error: rpcError } = await supabase.rpc('delete_user');
+      if (rpcError) throw rpcError;
+
+      // 2. Sign out locally to clear the session and UI
+      const { error: signOutError } = await supabase.auth.signOut();
+      if (signOutError) throw signOutError;
+
       return { error: null };
     } catch (error) {
       console.error("[Auth] Delete account error:", error);

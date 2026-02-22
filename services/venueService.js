@@ -3,6 +3,16 @@ import logger from "../utils/logger";
 
 const log = logger.tag("VenueService");
 
+// Venue default fields for display (replaces VENUE_OVERRIDES)
+const VENUE_DEFAULT_FIELDS = [
+  'default_crowd_label',
+  'default_music_genre',
+  'default_peak_label',
+  'default_line_note',
+  'default_cover_note',
+  'google_price_level',
+].join(', ');
+
 // Fallback venues if database fails
 const FALLBACK_VENUES = [
   { id: "Gospel", name: "Gospel", neighborhood: "SoHo", guys: 50, girls: 50, venue_type: "club" },
@@ -40,7 +50,7 @@ export async function getAllVenues() {
   try {
     const { data, error } = await supabase
       .from("venues")
-      .select("id, name, neighborhood, default_guys, default_girls, venue_type, address, city")
+      .select(`id, name, neighborhood, default_guys, default_girls, venue_type, address, city, ${VENUE_DEFAULT_FIELDS}`)
       .order("name", { ascending: true });
 
     if (error) {
@@ -87,7 +97,7 @@ export async function getVenuesByType(venueType) {
   try {
     const { data, error } = await supabase
       .from("venues")
-      .select("id, name, neighborhood, default_guys, default_girls, venue_type, address, city")
+      .select(`id, name, neighborhood, default_guys, default_girls, venue_type, address, city, ${VENUE_DEFAULT_FIELDS}`)
       .eq("venue_type", venueType)
       .order("name", { ascending: true });
 
@@ -126,7 +136,7 @@ export async function getVenueById(venueId) {
   try {
     const { data, error } = await supabase
       .from("venues")
-      .select("id, name, neighborhood, default_guys, default_girls, venue_type, address, city")
+      .select(`id, name, neighborhood, default_guys, default_girls, venue_type, address, city, ${VENUE_DEFAULT_FIELDS}`)
       .eq("id", venueId)
       .maybeSingle();
 
@@ -196,7 +206,7 @@ export async function getVenuesByIds(venueIds) {
   try {
     const { data, error } = await supabase
       .from("venues")
-      .select("id, name, neighborhood, default_guys, default_girls, venue_type, address, city")
+      .select(`id, name, neighborhood, default_guys, default_girls, venue_type, address, city, ${VENUE_DEFAULT_FIELDS}`)
       .in("id", venueIds);
 
     if (error) {
@@ -233,7 +243,7 @@ export async function getVenuesByTypeAndNeighborhood(venueType, neighborhood) {
   try {
     const { data, error } = await supabase
       .from("venues")
-      .select("id, name, neighborhood, default_guys, default_girls, venue_type, address, city")
+      .select(`id, name, neighborhood, default_guys, default_girls, venue_type, address, city, ${VENUE_DEFAULT_FIELDS}`)
       .eq("venue_type", venueType)
       .eq("neighborhood", neighborhood)
       .order("name", { ascending: true });

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -11,25 +11,22 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
 import { useAuth } from "../contexts/AuthContext";
 import { getUserVibes } from "../services/vibeService";
 import { getUserProfile } from "../services/profileService";
-import { getUserCheckIns, getUserStats } from "../services/userService";
-import { formatTimeAgo } from "../utils/timeHelpers";
+import { getUserStats } from "../services/userService";
+import { formatTimeAgo, formatVibeRecency } from "../utils/timeHelpers";
 import {
-  calculatePoints,
-  getLevelFromPoints,
-  formatPercentile,
   calculateStreak,
   countNightsOut,
   checkBadges,
 } from "../utils/profileHelpers";
-import { getVenueById } from "../services/venueService";
-import { mapRatioToPercent } from "../utils/vibeHelpers";
 import { mapCoverPriceToUI } from "../utils/priceMapping";
 import EmptyState, { EmptyStates } from "./EmptyState";
+import IconButton from "./IconButton";
+import AppScreen from "./AppScreen";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -41,11 +38,6 @@ const formatNumber = (num) => {
   return num;
 };
 
-// Helper: Validate percentile rank (0-100)
-const isValidPercentile = (rank) => {
-  return rank !== null && rank !== undefined && rank >= 0 && rank <= 100;
-};
-
 // Helper: Get initials from username (2 letters)
 const getInitials = (name) => {
   if (!name || name.length === 0) return "U";
@@ -55,60 +47,35 @@ const getInitials = (name) => {
 
 export default function ProfileScreen({ navigation: navigationProp, isGuest = false }) {
   const navigation = navigationProp || useNavigation();
+  const insets = useSafeAreaInsets();
   const { user, isAuthenticated, signOut, setShowAuthModal } = useAuth();
   
   // State
   const [userVibes, setUserVibes] = useState([]);
-  const [userCheckIns, setUserCheckIns] = useState([]);
   const [userProfile, setUserProfile] = useState(null);
   const [userStats, setUserStats] = useState(null);
   const [badges, setBadges] = useState([]);
-  const [checkInVenues, setCheckInVenues] = useState({}); // Map venue_id -> venue name
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(false);
-  const [activeTab, setActiveTab] = useState("vibes"); // "vibes" | "checkins" | "badges"
-  const [preferencesExpanded, setPreferencesExpanded] = useState(true); // Expanded by default
+  const [activeTab, setActiveTab] = useState("vibes"); // "vibes" | "badges"
 
-  const loadProfileData = async () => {
+  const loadProfileData = useCallback(async () => {
     if (isAuthenticated && user?.id && !isGuest) {
       setLoading(true);
       setLoadError(false);
       
       try {
-        const [vibes, checkIns, profile, stats] = await Promise.all([
+        const [vibes, profile, stats] = await Promise.all([
           getUserVibes(user.id, 50),
-          getUserCheckIns(user.id, 100),
           getUserProfile(user.id),
           getUserStats(user.id),
         ]);
 
+        console.log("[Profile] loadProfileData called, profile:", profile?.going_out_days);
+
         setUserVibes(vibes || []);
-        setUserCheckIns(checkIns.data || []);
         setUserProfile(profile);
         setUserStats(stats);
-
-        // Fetch venue names for check-ins
-        if (checkIns.data && checkIns.data.length > 0) {
-          const venueIds = [...new Set(checkIns.data.map(c => c.venue_id))];
-          const venueMap = {};
-          await Promise.all(
-            venueIds.map(async (venueId) => {
-              try {
-                const venue = await getVenueById(venueId);
-                if (venue && venue.name) {
-                  venueMap[venueId] = venue.name;
-                } else {
-                  // Fallback if venue not found or has no name
-                  venueMap[venueId] = "Unknown Venue";
-                }
-              } catch (error) {
-                console.warn("[Profile] Error fetching venue:", venueId, error);
-                venueMap[venueId] = "Unknown Venue";
-              }
-            })
-          );
-          setCheckInVenues(venueMap);
-        }
 
         // Calculate badges
         if (stats) {
@@ -123,14 +90,12 @@ export default function ProfileScreen({ navigation: navigationProp, isGuest = fa
       }
     } else {
       setUserVibes([]);
-      setUserCheckIns([]);
       setUserProfile(null);
       setUserStats(null);
       setBadges([]);
-      setCheckInVenues({});
       setLoading(false);
     }
-  };
+  }, [isAuthenticated, user?.id, isGuest]);
 
   useEffect(() => {
     loadProfileData();
@@ -138,12 +103,14 @@ export default function ProfileScreen({ navigation: navigationProp, isGuest = fa
 
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
+      console.log("[Profile] Focus listener triggered");
       if (isAuthenticated && user?.id && !isGuest) {
+        console.log("[Profile] Calling loadProfileData from focus listener");
         loadProfileData();
       }
     });
     return unsubscribe;
-  }, [navigation, isAuthenticated, user?.id, isGuest]);
+  }, [navigation, isAuthenticated, user?.id, isGuest, loadProfileData]);
 
   const handleSignIn = () => {
     setShowAuthModal(true);
@@ -154,13 +121,13 @@ export default function ProfileScreen({ navigation: navigationProp, isGuest = fa
   };
 
   const handleEditProfile = () => {
-    navigation.navigate("ProfileSetup");
+    navigation.navigate("ProfileSetup", { jumpToStep: "days" });
   };
 
   // Guest profile view
   if (isGuest || !isAuthenticated) {
     return (
-      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+      <AppScreen scrollable screenName="ProfileScreen-Guest" contentContainerStyle={{ paddingHorizontal: 0 }}>
         <View style={styles.header}>
           <View style={styles.avatarContainer}>
             <View style={styles.avatarGlow} />
@@ -188,46 +155,23 @@ export default function ProfileScreen({ navigation: navigationProp, isGuest = fa
         </View>
 
         <View style={{ height: 32 }} />
-      </ScrollView>
+      </AppScreen>
     );
   }
 
   // Calculate derived values with validation
   const userName = userProfile?.username || user?.email?.split("@")[0] || "User";
   const location = userProfile?.city || "NYC";
-  const points = userStats?.points || 0;
-  const levelInfo = getLevelFromPoints(points);
-  
-  // FIX: Validate percentile before showing
-  const userRank = userStats?.userRank;
-  const showPercentile = isValidPercentile(userRank);
-  const percentile = showPercentile ? formatPercentile(userRank) : null;
-  
   const bio = userProfile?.bio || "";
 
   // Stats with validation
   const vibeCount = userStats?.vibeCount || 0;
-  const checkInCount = userStats?.checkInCount || 0;
   const streak = userStats?.streak || 0;
   const nightsOut = userStats?.nightsOut || 0;
 
-  // Preferences
-  const preferredScene = userProfile?.preferred_scene || "both";
-  const favoriteGenres = userProfile?.favorite_genres || [];
-  const favoriteNeighborhoods = userProfile?.favorite_neighborhoods || [];
+  // Going-out days (for MY NIGHTS row)
   const goingOutDays = userProfile?.going_out_days || [];
-
-  // Format preferences
-  const sceneLabel = preferredScene === "bars" ? "Bars" : preferredScene === "clubs" ? "Clubs" : "Clubs & Bars";
-  const genresLabel = favoriteGenres.length > 0 ? favoriteGenres.join(", ") : "Not set";
-  const neighborhoodsLabel = favoriteNeighborhoods.length > 0 ? favoriteNeighborhoods.join(", ") : "Not set";
   const daysLabel = goingOutDays.length > 0 ? goingOutDays.map(d => d.charAt(0).toUpperCase() + d.slice(1, 3)).join(", ") : "Not set";
-
-  // Protect progress bar (max 100%)
-  const progressPercent = Math.min(
-    100,
-    Math.max(0, (levelInfo.progress / Math.max(1, levelInfo.progressMax)) * 100)
-  );
 
   // Render activity tab content
   const renderActivityContent = () => {
@@ -266,7 +210,6 @@ export default function ProfileScreen({ navigation: navigationProp, isGuest = fa
         <View style={styles.activityList}>
           {userVibes.map((vibe, index) => {
             const venue = vibe.venue || { name: vibe.venue_id, neighborhood: "Unknown" };
-            const ratioPercent = vibe.ratio ? mapRatioToPercent(vibe.ratio) : null;
             
             return (
               <TouchableOpacity
@@ -281,81 +224,29 @@ export default function ProfileScreen({ navigation: navigationProp, isGuest = fa
                 }}
               >
                 <View style={styles.activityItemHeader}>
-                  <Text style={styles.activityItemTitle}>
-                    {venue.venue_type === "bar" ? "🏈" : "🪩"} {venue.name}
-                  </Text>
+                  <View style={styles.activityItemLeft}>
+                    <Text style={styles.activityItemCrowd}>
+                      {vibe.crowd || "—"}
+                    </Text>
+                    <Text style={styles.activityItemVenue}>
+                      at {venue.name}
+                    </Text>
+                  </View>
                   <Text style={styles.activityItemTime}>{formatTimeAgo(vibe.created_at, true)}</Text>
                 </View>
-                <Text style={styles.activityItemLocation}>{venue.neighborhood}</Text>
-                <View style={styles.activityItemDetails}>
-                  {venue.venue_type === "bar" ? (
-                    <>
-                      {vibe.bar_type && <Text style={styles.activityItemDetail}>{vibe.bar_type}</Text>}
-                      {vibe.drinks_price_tier && <Text style={styles.activityItemDetail}>• {vibe.drinks_price_tier}</Text>}
-                      {vibe.music && <Text style={styles.activityItemDetail}>• {vibe.music}</Text>}
-                    </>
-                  ) : (
-                    <>
-                      {vibe.line && <Text style={styles.activityItemDetail}>{vibe.line}</Text>}
-                      {vibe.cover && <Text style={styles.activityItemDetail}>• {mapCoverPriceToUI(vibe.cover)}</Text>}
-                      {vibe.music && <Text style={styles.activityItemDetail}>• {vibe.music}</Text>}
-                    </>
-                  )}
-                </View>
-                {ratioPercent && (
-                  <Text style={styles.activityItemRatio}>
-                    👥 {ratioPercent.guys}% / {ratioPercent.girls}%
-                  </Text>
-                )}
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-      );
-    }
-
-    if (activeTab === "checkins") {
-      if (checkInCount === 0) {
-        return (
-          <EmptyState
-            {...EmptyStates.noCheckIns}
-            variant="compact"
-          />
-        );
-      }
-
-      return (
-        <View style={styles.activityList}>
-          {userCheckIns.slice(0, 50).map((checkIn, index) => {
-            const checkInDate = new Date(checkIn.created_at);
-            const isToday = checkInDate.toDateString() === new Date().toDateString();
-            const timeStr = isToday 
-              ? `Tonight at ${checkInDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })}`
-              : formatTimeAgo(checkIn.created_at, true);
-
-            const venueName = checkInVenues[checkIn.venue_id] || checkIn.venue_id;
-
-            return (
-              <TouchableOpacity
-                key={index}
-                style={styles.activityItem}
-                onPress={async () => {
-                  const venue = await getVenueById(checkIn.venue_id);
-                  if (venue) {
-                    navigation.navigate("Explore", {
-                      screen: "VenueDetails",
-                      params: { venueId: checkIn.venue_id },
-                    });
-                  }
-                }}
-              >
-                <View style={styles.checkInItem}>
-                  <Text style={styles.checkInIcon}>✓</Text>
-                  <View style={styles.checkInContent}>
-                    <Text style={styles.checkInVenue}>{venueName}</Text>
-                    <Text style={styles.checkInTime}>{timeStr}</Text>
+                {(vibe.music || vibe.cover || vibe.drinks_price_tier) && (
+                  <View style={styles.activityChips}>
+                    {vibe.music && (
+                      <Text style={styles.activityChip}>🎵 {vibe.music}</Text>
+                    )}
+                    {vibe.cover && (
+                      <Text style={styles.activityChip}>💵 {mapCoverPriceToUI(vibe.cover)}</Text>
+                    )}
+                    {vibe.drinks_price_tier && (
+                      <Text style={styles.activityChip}>🍸 {vibe.drinks_price_tier}</Text>
+                    )}
                   </View>
-                </View>
+                )}
               </TouchableOpacity>
             );
           })}
@@ -368,7 +259,7 @@ export default function ProfileScreen({ navigation: navigationProp, isGuest = fa
         return (
           <View style={styles.emptyState}>
             <Text style={styles.emptyText}>No badges yet</Text>
-            <Text style={styles.emptySubtext}>Keep posting vibes and checking in to unlock badges</Text>
+            <Text style={styles.emptySubtext}>Keep posting vibes to unlock badges</Text>
           </View>
         );
       }
@@ -406,14 +297,14 @@ export default function ProfileScreen({ navigation: navigationProp, isGuest = fa
 
   // Authenticated user profile view
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+    <AppScreen scrollable screenName="ProfileScreen" contentContainerStyle={{ paddingHorizontal: 0 }}>
       {/* Header Section */}
       <View style={styles.headerSection}>
         <View style={styles.headerTop}>
-          <Text style={styles.headerTitle}>DarkNite</Text>
-          <TouchableOpacity onPress={handleSettings} style={styles.settingsIconButton}>
-            <Ionicons name="settings-outline" size={24} color="#A855F7" />
-          </TouchableOpacity>
+          <View style={{ width: 44 }} />
+          <IconButton onPress={handleSettings}>
+            <Ionicons name="settings-outline" size={22} color="#9CA3AF" />
+          </IconButton>
         </View>
 
         <View style={styles.avatarSection}>
@@ -427,107 +318,44 @@ export default function ProfileScreen({ navigation: navigationProp, isGuest = fa
           <Text style={styles.locationText}>📍 {location}</Text>
         </View>
 
-        {/* Points, Level, Percentile */}
-        <View style={styles.statsRow}>
-          <View style={styles.statBadge}>
-            <Text style={styles.statBadgeEmoji}>🔥</Text>
-            <Text style={styles.statBadgeValue}>{formatNumber(points)}</Text>
-            <Text style={styles.statBadgeLabel}>pts</Text>
-          </View>
-          <View style={styles.statBadge}>
-            <Text style={styles.statBadgeEmoji}>{levelInfo.badge}</Text>
-            <Text style={styles.statBadgeValue}>Level {levelInfo.level}</Text>
-          </View>
-          {showPercentile && (
-            <View style={styles.statBadge}>
-              <Text style={styles.statBadgeEmoji}>🏆</Text>
-              <Text style={styles.statBadgeValue}>{percentile}</Text>
-            </View>
-          )}
-        </View>
-
-        {/* Level Progress Bar */}
-        <View style={styles.levelProgressContainer}>
-          <View style={styles.levelProgressBar}>
-            <LinearGradient
-              colors={["#A855F7", "#EC4899"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={[styles.levelProgressFill, { width: `${progressPercent}%` }]}
-            />
-          </View>
-          <Text style={styles.levelProgressText}>
-            {levelInfo.pointsNeeded} pts to Level {levelInfo.level + 1}
-          </Text>
-        </View>
-
         {/* Bio - only show if exists */}
         {bio.trim() && (
           <Text style={styles.bioText}>"{bio}"</Text>
         )}
       </View>
 
-      {/* Stats Row (Horizontal Scrollable) */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.statsScrollContainer}
-      >
-        <View style={styles.statCard}>
-          <Text style={styles.statCardEmoji}>🎉</Text>
-          <Text style={styles.statCardValue}>{formatNumber(vibeCount)}</Text>
-          <Text style={styles.statCardLabel}>Vibes{'\n'}Posted</Text>
+      {/* Stats Grid */}
+      <View style={styles.statsGrid}>
+        <View style={styles.statGridItem}>
+          <Text style={styles.statGridValue}>{formatNumber(vibeCount)}</Text>
+          <Text style={styles.statGridLabel}>Vibes</Text>
         </View>
-        <View style={styles.statCard}>
-          <Text style={styles.statCardEmoji}>📍</Text>
-          <Text style={styles.statCardValue}>{formatNumber(checkInCount)}</Text>
-          <Text style={styles.statCardLabel}>Check-{'\n'}ins</Text>
+        <View style={styles.statGridDivider} />
+        <View style={styles.statGridItem}>
+          <Text style={styles.statGridValue}>{formatNumber(streak)}</Text>
+          <Text style={styles.statGridLabel}>Streak</Text>
         </View>
-        <View style={styles.statCard}>
-          <Text style={styles.statCardEmoji}>🔥</Text>
-          <Text style={styles.statCardValue}>{formatNumber(streak)}</Text>
-          <Text style={styles.statCardLabel}>Streak{'\n'}Days</Text>
+        <View style={styles.statGridDivider} />
+        <View style={styles.statGridItem}>
+          <Text style={styles.statGridValue}>{formatNumber(nightsOut)}</Text>
+          <Text style={styles.statGridLabel}>Nights Out</Text>
         </View>
-        <View style={styles.statCard}>
-          <Text style={styles.statCardEmoji}>📅</Text>
-          <Text style={styles.statCardValue}>{formatNumber(nightsOut)}</Text>
-          <Text style={styles.statCardLabel}>Nights{'\n'}Out</Text>
-        </View>
-      </ScrollView>
-
-      {/* Preferences Section */}
-      <View style={styles.preferencesSection}>
-        <TouchableOpacity
-          style={styles.preferencesHeader}
-          onPress={() => setPreferencesExpanded(!preferencesExpanded)}
-        >
-          <Text style={styles.preferencesTitle}>🎵 MY VIBE</Text>
-          <TouchableOpacity onPress={handleEditProfile} style={styles.editButton}>
-            <Text style={styles.editButtonText}>Edit</Text>
-          </TouchableOpacity>
-        </TouchableOpacity>
-        
-        {preferencesExpanded && (
-          <View style={styles.preferencesContent}>
-            <View style={styles.preferenceRow}>
-              <Text style={styles.preferenceLabel}>Music:</Text>
-              <Text style={styles.preferenceValue}>{genresLabel}</Text>
-            </View>
-            <View style={styles.preferenceRow}>
-              <Text style={styles.preferenceLabel}>Venues:</Text>
-              <Text style={styles.preferenceValue}>{sceneLabel}</Text>
-            </View>
-            <View style={styles.preferenceRow}>
-              <Text style={styles.preferenceLabel}>Hoods:</Text>
-              <Text style={styles.preferenceValue}>{neighborhoodsLabel}</Text>
-            </View>
-            <View style={styles.preferenceRow}>
-              <Text style={styles.preferenceLabel}>Days:</Text>
-              <Text style={styles.preferenceValue}>{daysLabel}</Text>
-            </View>
-          </View>
-        )}
       </View>
+
+      {/* Going-Out Days */}
+      <TouchableOpacity
+        style={styles.goingOutRow}
+        onPress={handleEditProfile}
+        activeOpacity={0.7}
+      >
+        <View style={styles.goingOutLeft}>
+          <Text style={styles.goingOutLabel}>MY NIGHTS</Text>
+          <Text style={styles.goingOutValue}>
+            {goingOutDays.length > 0 ? daysLabel : "Tap to set your going-out days"}
+          </Text>
+        </View>
+        <Text style={styles.goingOutArrow}>›</Text>
+      </TouchableOpacity>
 
       {/* Activity Tabs */}
       <View style={styles.activitySection}>
@@ -538,14 +366,6 @@ export default function ProfileScreen({ navigation: navigationProp, isGuest = fa
           >
             <Text style={[styles.tabText, activeTab === "vibes" && styles.tabTextActive]}>
               My Vibes
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.tab, activeTab === "checkins" && styles.tabActive]}
-            onPress={() => setActiveTab("checkins")}
-          >
-            <Text style={[styles.tabText, activeTab === "checkins" && styles.tabTextActive]}>
-              Check-ins
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -562,7 +382,7 @@ export default function ProfileScreen({ navigation: navigationProp, isGuest = fa
       </View>
 
       <View style={{ height: 32 }} />
-    </ScrollView>
+    </AppScreen>
   );
 }
 
@@ -583,8 +403,8 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   headerSection: {
-    paddingTop: 16,
-    paddingBottom: 24,
+    paddingTop: 8,
+    paddingBottom: 16,
     paddingHorizontal: 16,
   },
   headerTop: {
@@ -593,18 +413,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 24,
   },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: "800",
-    color: "#FFFFFF",
-    letterSpacing: -0.5,
-  },
   settingsIconButton: {
     padding: 4,
   },
   avatarSection: {
     alignItems: "center",
-    marginBottom: 20,
+    marginBottom: 16,
   },
   avatarContainer: {
     position: "relative",
@@ -612,26 +426,26 @@ const styles = StyleSheet.create({
   },
   avatarGlow: {
     position: "absolute",
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+    width: 76,
+    height: 76,
+    borderRadius: 38,
     backgroundColor: "#A855F7",
-    opacity: 0.3,
-    top: -5,
-    left: -5,
+    opacity: 0.2,
+    top: -3,
+    left: -3,
   },
   avatar: {
-    width: 90,
-    height: 90,
-    borderRadius: 45,
-    backgroundColor: "rgba(168,85,247,0.2)",
-    borderWidth: 3,
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: "rgba(168,85,247,0.15)",
+    borderWidth: 2.5,
     borderColor: "#A855F7",
     justifyContent: "center",
     alignItems: "center",
   },
   avatarText: {
-    fontSize: 36,
+    fontSize: 28,
     fontWeight: "800",
     color: "#A855F7",
   },
@@ -646,54 +460,6 @@ const styles = StyleSheet.create({
     color: "#94A3B8",
     fontWeight: "500",
   },
-  statsRow: {
-    flexDirection: "row",
-    justifyContent: "center",
-    gap: 12,
-    marginBottom: 16,
-  },
-  statBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(168,85,247,0.15)",
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderWidth: 1,
-    borderColor: "rgba(168,85,247,0.3)",
-    gap: 6,
-  },
-  statBadgeEmoji: {
-    fontSize: 16,
-  },
-  statBadgeValue: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#FFFFFF",
-  },
-  statBadgeLabel: {
-    fontSize: 11,
-    color: "#94A3B8",
-  },
-  levelProgressContainer: {
-    marginBottom: 12,
-  },
-  levelProgressBar: {
-    height: 6,
-    backgroundColor: "rgba(168,85,247,0.2)",
-    borderRadius: 3,
-    overflow: "hidden",
-    marginBottom: 6,
-  },
-  levelProgressFill: {
-    height: "100%",
-    borderRadius: 3,
-  },
-  levelProgressText: {
-    fontSize: 11,
-    color: "#94A3B8",
-    textAlign: "center",
-  },
   bioText: {
     fontSize: 14,
     color: "#94A3B8",
@@ -701,100 +467,84 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 8,
   },
-  statsScrollContainer: {
-    paddingHorizontal: 16,
-    gap: 12,
-    marginBottom: 24,
-  },
-  statCard: {
-    width: 100,
-    backgroundColor: "#1E1B2E",
-    borderRadius: 16,
-    padding: 16,
+  statsGrid: {
+    flexDirection: "row",
     alignItems: "center",
-    borderWidth: 1.5,
-    borderColor: "rgba(168,85,247,0.3)",
-  },
-  statCardEmoji: {
-    fontSize: 32,
-    marginBottom: 8,
-  },
-  statCardValue: {
-    fontSize: 24,
-    fontWeight: "800",
-    color: "#FFFFFF",
-    marginBottom: 4,
-  },
-  statCardLabel: {
-    fontSize: 11,
-    color: "#94A3B8",
-    fontWeight: "600",
-    textAlign: "center",
-  },
-  preferencesSection: {
     marginHorizontal: 16,
-    marginBottom: 24,
+    marginBottom: 20,
     backgroundColor: "#1E1B2E",
-    borderRadius: 16,
-    borderWidth: 1.5,
-    borderColor: "rgba(168,85,247,0.3)",
-    overflow: "hidden",
+    borderRadius: 14,
+    paddingVertical: 16,
+    borderWidth: 1,
+    borderColor: "rgba(168, 85, 247, 0.15)",
   },
-  preferencesHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: 16,
-  },
-  preferencesTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#FFFFFF",
-  },
-  editButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: "rgba(168,85,247,0.2)",
-    borderRadius: 8,
-  },
-  editButtonText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#A855F7",
-  },
-  preferencesContent: {
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-    gap: 12,
-  },
-  preferenceRow: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  preferenceLabel: {
-    fontSize: 13,
-    color: "#94A3B8",
-    fontWeight: "600",
-    minWidth: 60,
-  },
-  preferenceValue: {
-    fontSize: 13,
-    color: "#FFFFFF",
-    fontWeight: "500",
+  statGridItem: {
     flex: 1,
+    alignItems: "center",
+  },
+  statGridValue: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#F5F3FF",
+    marginBottom: 2,
+  },
+  statGridLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#6B7280",
+    textTransform: "uppercase",
+    letterSpacing: 0.3,
+  },
+  statGridDivider: {
+    width: 1,
+    height: 28,
+    backgroundColor: "rgba(168, 85, 247, 0.12)",
+  },
+  goingOutRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: 16,
+    marginBottom: 16,
+    backgroundColor: "#1E1B2E",
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: "rgba(168, 85, 247, 0.12)",
+  },
+  goingOutLeft: {
+    flex: 1,
+    gap: 3,
+  },
+  goingOutLabel: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#6B7280",
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+  },
+  goingOutValue: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#E9D5FF",
+  },
+  goingOutArrow: {
+    fontSize: 20,
+    color: "#6B7280",
+    fontWeight: "300",
   },
   activitySection: {
     marginHorizontal: 16,
-    marginBottom: 24,
+    marginBottom: 16,
   },
   tabContainer: {
     flexDirection: "row",
     backgroundColor: "#1E1B2E",
-    borderRadius: 12,
-    padding: 4,
-    marginBottom: 16,
-    borderWidth: 1.5,
-    borderColor: "rgba(168,85,247,0.3)",
+    borderRadius: 10,
+    padding: 3,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: "rgba(168, 85, 247, 0.15)",
   },
   tab: {
     flex: 1,
@@ -820,9 +570,9 @@ const styles = StyleSheet.create({
   activityItem: {
     backgroundColor: "#1E1B2E",
     borderRadius: 12,
-    padding: 16,
-    borderWidth: 1.5,
-    borderColor: "rgba(168,85,247,0.3)",
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "rgba(168, 85, 247, 0.10)",
   },
   activityItemHeader: {
     flexDirection: "row",
@@ -830,58 +580,36 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 6,
   },
-  activityItemTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#FFFFFF",
+  activityItemLeft: {
     flex: 1,
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 6,
+  },
+  activityItemCrowd: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#F5F3FF",
+  },
+  activityItemVenue: {
+    fontSize: 13,
+    color: "#9CA3AF",
+    fontWeight: "500",
   },
   activityItemTime: {
     fontSize: 12,
     color: "#94A3B8",
   },
-  activityItemLocation: {
-    fontSize: 13,
-    color: "#94A3B8",
-    marginBottom: 8,
-  },
-  activityItemDetails: {
+  activityChips: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 4,
-    marginBottom: 6,
+    gap: 8,
+    marginTop: 8,
   },
-  activityItemDetail: {
-    fontSize: 13,
-    color: "#E9D5FF",
-  },
-  activityItemRatio: {
+  activityChip: {
     fontSize: 12,
-    color: "#94A3B8",
-    marginTop: 4,
-  },
-  checkInItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  checkInIcon: {
-    fontSize: 24,
-    color: "#10B981",
-    fontWeight: "700",
-  },
-  checkInContent: {
-    flex: 1,
-  },
-  checkInVenue: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#FFFFFF",
-    marginBottom: 4,
-  },
-  checkInTime: {
-    fontSize: 13,
-    color: "#94A3B8",
+    color: "#C4B5FD",
+    fontWeight: "500",
   },
   badgeItem: {
     backgroundColor: "#1E1B2E",

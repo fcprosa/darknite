@@ -1,15 +1,19 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, RefreshControl } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import VenueCardLovable from "./VenueCardLovable";
-import EmptyState, { EmptyStates } from "./EmptyState";
+import VenueCardCompact from "./VenueCardCompact";
+import { VenueCardSeparator } from "./VenueCardSeparator";
 import { mapCoverPriceToUI, BAR_TIER_UI_LABELS, mapBarTierToUI, mapLegacyDrinksPriceToTier } from "../utils/priceMapping";
-import { formatTimeAgo } from "../utils/timeHelpers";
 import { getVenueKeySafe } from "../utils/venueHelpers";
 import { useAppContext } from "../contexts/AppContext";
+import { useAuth } from "../contexts/AuthContext";
+import { computeStatusLine, computeChips, computeFeedScore } from "../utils/feedHelpers";
+import { isVibeActive } from "../utils/vibeDecay";
 import { getVenuesByType } from "../services/venueService";
 import { SCREEN_PADDING_HORIZONTAL, SCREEN_PADDING_TOP, SCREEN_PADDING_BOTTOM } from "../constants/spacing";
+import IconButton from "./IconButton";
 
 function FilterChip({ label, isActive, onPress }) {
   return (
@@ -29,85 +33,89 @@ function FilterChip({ label, isActive, onPress }) {
 }
 
 export default function ExploreScreen({ navigation, tabNavigation, onOpenVenue }) {
-  const { venues: allVenues, loadingVenues: loadingAllVenues, latestVibesByVenueId } = useAppContext();
+  const insets = useSafeAreaInsets();
+  const { isAuthenticated, setShowAuthModal } = useAuth();
+  const {
+    venues: allVenues,
+    loadingVenues: loadingAllVenues,
+    latestVibesByVenueId,
+    moveCountsByVenueId,
+  } = useAppContext();
   const [venues, setVenues] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [selectedType, setSelectedType] = useState("Clubs");
   const [searchQuery, setSearchQuery] = useState("");
 
   const [activeFilters, setActiveFilters] = useState(() => {
-    return selectedType === "Clubs"
-      ? { music: [], cover: [], crowd: [], neighborhood: [] }
-      : { bar_type: [], drinks_price: [], ratio: [], crowd: [], neighborhood: [] };
+    return { music: [], cover: [], crowd: [], neighborhood: [] };
   });
 
-  // Reset filters when switching tabs
+  // Reset type-specific filters when switching tabs; preserve crowd + neighborhood
   useEffect(() => {
-    // Preserve neighborhood filter when switching tabs
     setActiveFilters(prev => {
-      const currentNeighborhood = prev.neighborhood || [];
-
+      const keep = { crowd: prev.crowd || [], neighborhood: prev.neighborhood || [] };
       if (selectedType === "Clubs") {
-        return { music: [], cover: [], crowd: [], neighborhood: currentNeighborhood };
+        return { music: [], cover: [], ...keep };
       } else {
-        return { bar_type: [], drinks_price: [], ratio: [], crowd: [], neighborhood: currentNeighborhood };
+        return { drinks_price: [], ratio: [], ...keep };
       }
     });
   }, [selectedType]);
 
-  // Filter options by venue type
-  // IMPORTANT: These must match actual input options in PostVibeScreen and CheckInModal
+  // ── Filter options ─────────────────────────────────────────────
+  // IMPORTANT: Values must exactly match what PostVibeScreen / CheckInModal write to the DB.
+
   const clubFilterOptions = {
-    music: ["Hip-Hop / R&B", "Afrobeats", "House / Techno", "Reggaeton", "Top Hits", "Mixed"],
-    cover: ["Free", "< $10", "$10-20", "$20-30", "$30+"],
-    // Crowd options from PostVibeScreen crowdOptions
-    crowd: ["Dead", "Chill", "Fun", "Packed", "Chaos"],
+    crowd:  ["Dead", "Chill", "Fun", "Packed", "Chaos"],
+    music:  ["Hip-Hop / R&B", "Afrobeats", "House / Techno", "Latin / Reggaeton", "Pop / Top Hits", "Mixed"],
+    cover:  ["Free", "< $10", "$10-20", "$20-30", "$30+"],
+    line:   ["No line", "Short wait", "Long line", "Not worth it"],
   };
 
   const barFilterOptions = {
-    // Bar type options - lowercase to match DB values (cocktail, sports, dive, wine, speakeasy)
-    bar_type: ["cocktail", "sports", "dive", "wine", "speakeasy"],
+    crowd:        ["Dead", "Chill", "Fun", "Packed"],
     drinks_price: [
       BAR_TIER_UI_LABELS.cheap,
       BAR_TIER_UI_LABELS.moderate,
       BAR_TIER_UI_LABELS.pricey,
       BAR_TIER_UI_LABELS.expensive,
     ],
-    ratio: ["Mostly guys", "Balanced", "Mostly girls"],
-    // Crowd options from CheckInModal crowdOptions (bars)
-    crowd: ["Dead", "Chill", "Buzzing", "Packed"],
+    ratio:        ["Mostly guys", "Balanced", "Mostly girls"],
   };
 
-  const neighborhoods = useMemo(() => {
-    return [...new Set(venues.map((v) => v.neighborhood))].sort();
-  }, [venues]);
-
-  useEffect(() => {
-    async function load() {
-      if (loadingAllVenues) {
-        setLoading(true);
-        return;
-      }
-
+  // ── Load venues by type ────────────────────────────────────────
+  const loadVenues = async () => {
+    if (loadingAllVenues) {
       setLoading(true);
+      return;
+    }
+    setLoading(true);
+    try {
       const venueTypeFilter = selectedType === "Clubs" ? "club" : "bar";
-
-      // Use service to fetch venues by type
       const fetchedVenues = await getVenuesByType(venueTypeFilter);
-
-      if (fetchedVenues.length === 0) {
-        setVenues([]);
-        setLoading(false);
-        return;
-      }
-
-      // Set venues - vibes will be loaded via AppContext's refreshLatestVibes (batch fetch)
       setVenues(fetchedVenues);
+    } catch (error) {
+      console.error("[ExploreScreen] Error loading venues:", error);
+    } finally {
       setLoading(false);
     }
+  };
 
-    load();
+  useEffect(() => {
+    loadVenues();
   }, [selectedType, loadingAllVenues]);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      const venueTypeFilter = selectedType === "Clubs" ? "club" : "bar";
+      const fetchedVenues = await getVenuesByType(venueTypeFilter);
+      setVenues(fetchedVenues);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const toggleFilter = (filterType, value) => {
     setActiveFilters((prev) => {
@@ -118,242 +126,238 @@ export default function ExploreScreen({ navigation, tabNavigation, onOpenVenue }
     });
   };
 
+  // ── Filter logic ───────────────────────────────────────────────
   const filteredVenues = useMemo(() => {
     const list = venues || [];
     const isClub = selectedType === "Clubs";
 
     return list.filter((venue) => {
       const key = getVenueKeySafe(venue);
-      if (!key) return false; // Skip venues without valid IDs
-      const vibe = latestVibesByVenueId[key];
+      if (!key) return false;
 
-      // Search - works for both tabs
+      const vibe = latestVibesByVenueId?.[key] ?? null;
+
+      // Search — name, neighborhood, or music/bar_type
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
-        const nameMatch = (venue.name || "").toLowerCase().includes(q);
-        const neighborhoodMatch = (venue.neighborhood || "").toLowerCase().includes(q);
-        const musicMatch = vibe?.music?.toLowerCase().includes(q) || false;
-        const barTypeMatch = vibe?.bar_type?.toLowerCase().includes(q) || false;
+        const nameMatch          = (venue.name || "").toLowerCase().includes(q);
+        const neighborhoodMatch  = (venue.neighborhood || "").toLowerCase().includes(q);
+        const musicMatch         = (vibe?.music || venue.default_music_genre || "").toLowerCase().includes(q);
+        const barTypeMatch       = (vibe?.bar_type || "").toLowerCase().includes(q);
         if (!nameMatch && !neighborhoodMatch && !musicMatch && !barTypeMatch) return false;
       }
 
-      // Check if any filters are active
       const hasActiveFilters = Object.values(activeFilters).some(
         (arr) => Array.isArray(arr) && arr.length > 0
       );
 
-      if (!vibe) return !hasActiveFilters;
+      // Neighbourhood filter always applies regardless of vibe
+      if (activeFilters.neighborhood?.length > 0) {
+        if (!activeFilters.neighborhood.includes(venue.neighborhood)) return false;
+      }
 
-      if (isClub) {
-        // CLUB FILTERS
-        // Music filter
-        if (activeFilters.music?.length > 0) {
-          if (!vibe.music || !activeFilters.music.includes(vibe.music)) return false;
+      if (!vibe) {
+        if (isClub) {
+          // Cover, crowd, and line filters require a live vibe
+          if (
+            activeFilters.cover?.length > 0 ||
+            activeFilters.crowd?.length > 0 ||
+            activeFilters.line?.length > 0
+          ) return false;
+          // Music can be inferred from the venue's default genre
+          if (activeFilters.music?.length > 0) {
+            return !!venue.default_music_genre &&
+              activeFilters.music.includes(venue.default_music_genre);
+          }
+        } else {
+          // All bar-specific filters require a live vibe
+          if (
+            activeFilters.drinks_price?.length > 0 ||
+            activeFilters.crowd?.length > 0 ||
+            activeFilters.ratio?.length > 0
+          ) return false;
         }
+        return !hasActiveFilters;
+      }
 
-        // Cover filter - convert DB format to UI format before comparing
+      // ── Club filters ──
+      if (isClub) {
+        if (activeFilters.crowd?.length > 0) {
+          if (!vibe.crowd || !activeFilters.crowd.includes(vibe.crowd)) return false;
+        }
+        if (activeFilters.music?.length > 0) {
+          // Fall back to venue default when tonight's vibe has no music reported
+          const musicValue = vibe.music || venue.default_music_genre;
+          if (!musicValue || !activeFilters.music.includes(musicValue)) return false;
+        }
         if (activeFilters.cover?.length > 0) {
           const coverUI = mapCoverPriceToUI(vibe.cover);
           if (!activeFilters.cover.includes(coverUI)) return false;
         }
-
-        // Crowd filter
-        if (activeFilters.crowd?.length > 0) {
-          if (!vibe.crowd || !activeFilters.crowd.includes(vibe.crowd)) return false;
-        }
-      } else {
-        // BAR FILTERS
-        // Bar type filter - handle case sensitivity
-        if (activeFilters.bar_type?.length > 0) {
-          const vibeBarType = vibe.bar_type ? vibe.bar_type.toLowerCase() : null;
-          const filterBarTypes = activeFilters.bar_type.map(bt => bt.toLowerCase());
-          if (!vibeBarType || !filterBarTypes.includes(vibeBarType)) return false;
-        }
-
-        // Drinks price filter - use tier system
-        if (activeFilters.drinks_price?.length > 0) {
-          let vibeUILabel = null;
-          // Bar: check drinks_price_tier (new) or legacy drinks_price
-          if (vibe.drinks_price_tier) {
-            vibeUILabel = mapBarTierToUI(vibe.drinks_price_tier);
-          } else if (vibe.drinks_price) {
-            // Backward compatibility: convert legacy to tier
-            const tier = mapLegacyDrinksPriceToTier(vibe.drinks_price);
-            vibeUILabel = tier ? mapBarTierToUI(tier) : null;
-          }
-          if (!vibeUILabel || !activeFilters.drinks_price.includes(vibeUILabel)) {
-            return false;
-          }
-        }
-
-        // Ratio filter (optional for bars)
-        if (activeFilters.ratio?.length > 0) {
-          if (!vibe.ratio || !activeFilters.ratio.includes(vibe.ratio)) return false;
-        }
-
-        // Crowd filter (from check-ins for bars)
-        if (activeFilters.crowd?.length > 0) {
-          if (!vibe.crowd || !activeFilters.crowd.includes(vibe.crowd)) return false;
+        if (activeFilters.line?.length > 0) {
+          const lineVal = vibe.line || "";
+          const matched = activeFilters.line.some(f => lineVal.toLowerCase().includes(f.toLowerCase()));
+          if (!matched) return false;
         }
       }
 
-      // Neighborhood filter (works for both)
-      if (activeFilters.neighborhood?.length > 0) {
-        if (!activeFilters.neighborhood.includes(venue.neighborhood)) return false;
+      // ── Bar filters ──
+      if (!isClub) {
+        if (activeFilters.crowd?.length > 0) {
+          if (!vibe.crowd || !activeFilters.crowd.includes(vibe.crowd)) return false;
+        }
+        if (activeFilters.drinks_price?.length > 0) {
+          let vibeUILabel = null;
+          if (vibe.drinks_price_tier) {
+            vibeUILabel = mapBarTierToUI(vibe.drinks_price_tier);
+          } else if (vibe.drinks_price) {
+            const tier = mapLegacyDrinksPriceToTier(vibe.drinks_price);
+            vibeUILabel = tier ? mapBarTierToUI(tier) : null;
+          }
+          if (!vibeUILabel || !activeFilters.drinks_price.includes(vibeUILabel)) return false;
+        }
+        if (activeFilters.ratio?.length > 0) {
+          if (!vibe.ratio || !activeFilters.ratio.includes(vibe.ratio)) return false;
+        }
       }
 
       return true;
     });
   }, [venues, latestVibesByVenueId, searchQuery, activeFilters, selectedType]);
 
-  // Group filtered venues by neighborhood
-  const neighborhoodGroups = useMemo(() => {
-    const groups = {};
-    for (const venue of filteredVenues) {
-      const key = getVenueKeySafe(venue);
-      if (!key) continue; // Skip venues without valid IDs
-      const vibe = latestVibesByVenueId[key];
-      const neighborhood = venue.neighborhood || "Unknown";
-      
-      if (!groups[neighborhood]) {
-        groups[neighborhood] = {
-          neighborhood,
-          venues: [],
-          count: 0,
-          lastUpdated: null,
-        };
-      }
-      
-      groups[neighborhood].venues.push(venue);
-      groups[neighborhood].count += 1;
-      
-      // Track latest updated time
-      if (vibe?.created_at) {
-        const vibeTime = new Date(vibe.created_at);
-        if (!groups[neighborhood].lastUpdated || vibeTime > groups[neighborhood].lastUpdated) {
-          groups[neighborhood].lastUpdated = vibeTime;
-        }
-      }
-    }
-    
-    // Convert to array and sort by neighborhood name
-    return Object.values(groups).sort((a, b) => a.neighborhood.localeCompare(b.neighborhood));
-  }, [filteredVenues, latestVibesByVenueId]);
+  // ── Sort filtered venues by feed score (same ranking as HomeScreen) ──
+  const sortedFilteredVenues = useMemo(() => {
+    const now = new Date();
+    return [...filteredVenues].sort((a, b) => {
+      const keyA   = getVenueKeySafe(a);
+      const keyB   = getVenueKeySafe(b);
+      const vibeA  = latestVibesByVenueId?.[keyA] ?? null;
+      const vibeB  = latestVibesByVenueId?.[keyB] ?? null;
+      const moveA  = moveCountsByVenueId?.[keyA] || 0;
+      const moveB  = moveCountsByVenueId?.[keyB] || 0;
+      const scoreA = computeFeedScore(a, vibeA, moveA, now);
+      const scoreB = computeFeedScore(b, vibeB, moveB, now);
+      if (scoreB !== scoreA) return scoreB - scoreA;
+      return (a.name || "").localeCompare(b.name || "");
+    });
+  }, [filteredVenues, latestVibesByVenueId, moveCountsByVenueId]);
 
-  const renderVenueCard = (item) => {
+  // ── Render a single venue card — identical pipeline to HomeScreen ──
+  const renderVenueCard = (item, index, total) => {
     const key = getVenueKeySafe(item);
-    if (!key) return null; // Skip venues without valid IDs
+    if (!key) return null;
+
     const latestVibe = latestVibesByVenueId?.[key] ?? null;
+    const moveCount  = moveCountsByVenueId?.[key] || 0;
+    const now        = new Date();
+
+    const statusLine = computeStatusLine(item, latestVibe, moveCount, now);
+    const chips      = computeChips(item, latestVibe, now);
+    const live       = isVibeActive(latestVibe?.created_at);
 
     return (
-      <VenueCardLovable
-        venue={item}
-        onPress={() => onOpenVenue(item)}
-        onPostVibe={() => {
-          // Navigate to PostVibe screen via parent tab navigator
-          const tabNav = navigation.getParent?.();
-          if (tabNav) {
-            tabNav.navigate("HomeTab", {
-              screen: "PostVibe",
-              params: {
-                venueId: item.id,
-                venueName: item.name,
-                venueType: item.venue_type,
-                neighborhood: item.neighborhood,
-              },
-            });
-          }
-        }}
-        latestVibe={latestVibe}
-      />
+      <React.Fragment key={key}>
+        <VenueCardCompact
+          venue={item}
+          statusLine={statusLine}
+          chips={chips}
+          isLive={live}
+          lastVibeTimestamp={latestVibe?.created_at || null}
+          moveCount={moveCount}
+          onPress={() => onOpenVenue(item)}
+        />
+        {index < total - 1 && <VenueCardSeparator />}
+      </React.Fragment>
     );
   };
 
-
-  const renderNeighborhoodCard = (group) => {
-    const lastUpdatedText = group.lastUpdated ? formatTimeAgo(group.lastUpdated, true) : null;
-    
-    const handlePress = () => {
-      console.log('[Explore] neighborhood pressed', group.neighborhood);
-      try {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      } catch (e) {
-        console.log('[Explore] Haptics error:', e);
+  const clearFilters = () => {
+    setActiveFilters(prev => {
+      const keep = { neighborhood: prev.neighborhood || [] };
+      if (selectedType === "Clubs") {
+        return { music: [], cover: [], crowd: [], line: [], ...keep };
+      } else {
+        return { drinks_price: [], ratio: [], crowd: [], ...keep };
       }
-      // Navigate to NeighborhoodVenuesScreen
-      navigation.navigate("NeighborhoodVenues", {
-        neighborhood: group.neighborhood,
-        selectedType: selectedType,
-      });
-    };
-    
-    return (
-      <TouchableOpacity
-        key={group.neighborhood}
-        style={styles.neighborhoodCard}
-        onPress={handlePress}
-        activeOpacity={0.7}
-      >
-        <View style={styles.neighborhoodCardContent}>
-          <View style={styles.neighborhoodCardLeft}>
-            <Text style={styles.neighborhoodCardName}>{group.neighborhood}</Text>
-            <Text style={styles.neighborhoodCardCount}>{group.count} venue{group.count !== 1 ? 's' : ''}</Text>
-          </View>
-          <View style={styles.neighborhoodCardRight}>
-            {lastUpdatedText && (
-              <Text style={styles.neighborhoodCardTime}>{lastUpdatedText}</Text>
-            )}
-            <Ionicons
-              name="chevron-forward"
-              size={20}
-              color="#A855F7"
-            />
-          </View>
-        </View>
-      </TouchableOpacity>
-    );
+    });
   };
+
+  const hasAnyActiveFilter = Object.values(activeFilters).some(
+    arr => Array.isArray(arr) && arr.length > 0
+  );
+
+  // Guest mode: show locked screen instead of the explore feed
+  if (!isAuthenticated) {
+    return (
+      <View style={[styles.container, styles.lockedContainer]}>
+        <View style={styles.lockedContent}>
+          <View style={styles.lockedIconWrap}>
+            <Ionicons name="lock-closed" size={40} color="#A855F7" />
+          </View>
+          <Text style={styles.lockedTitle}>Explore Locked</Text>
+          <Text style={styles.lockedSubtitle}>
+            Sign in to explore all venues and live vibes across the city.
+          </Text>
+          <TouchableOpacity
+            style={styles.lockedButton}
+            onPress={() => setShowAuthModal(true)}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.lockedButtonText}>Sign In or Sign Up</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <Text style={styles.headerTitle}>Explore</Text>
-        <TouchableOpacity onPress={() => tabNavigation?.navigate("ProfileTab")} style={styles.profileIconButton}>
+        <IconButton onPress={() => tabNavigation?.navigate("ProfileTab")}>
           <Ionicons name="person-circle-outline" size={28} color="#A855F7" />
-        </TouchableOpacity>
+        </IconButton>
       </View>
 
-      {/* Clubs/Bars Toggle */}
+      {/* Clubs / Bars toggle */}
       <View style={styles.toggleContainer}>
         <TouchableOpacity
           style={[styles.toggleButton, selectedType === "Clubs" && styles.toggleButtonActive]}
           onPress={() => setSelectedType("Clubs")}
         >
-          <Text style={[styles.toggleText, selectedType === "Clubs" && styles.toggleTextActive]}>Clubs</Text>
+          <Text style={[styles.toggleText, selectedType === "Clubs" && styles.toggleTextActive]}>
+            Clubs
+          </Text>
         </TouchableOpacity>
-
         <TouchableOpacity
           style={[styles.toggleButton, selectedType === "Bars" && styles.toggleButtonActive]}
           onPress={() => setSelectedType("Bars")}
         >
-          <Text style={[styles.toggleText, selectedType === "Bars" && styles.toggleTextActive]}>Bars</Text>
+          <Text style={[styles.toggleText, selectedType === "Bars" && styles.toggleTextActive]}>
+            Bars
+          </Text>
         </TouchableOpacity>
       </View>
 
-      {/* Search Input */}
+      {/* Search */}
       <View style={styles.searchContainer}>
         <Ionicons name="search-outline" size={20} color="#9CA3AF" style={styles.searchIcon} />
         <TextInput
           style={styles.searchInput}
-          placeholder="Search: Soho, reggaeton, rooftop…"
+          placeholder="Search: Soho, reggaeton, cocktail…"
           placeholderTextColor="#6B7280"
           value={searchQuery}
           onChangeText={setSearchQuery}
         />
+        {searchQuery.length > 0 && (
+          <TouchableOpacity onPress={() => setSearchQuery("")} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Ionicons name="close-circle" size={18} color="#6B7280" />
+          </TouchableOpacity>
+        )}
       </View>
 
-      {/* Filter Chips */}
+      {/* Filter chips — type-aware */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -362,120 +366,101 @@ export default function ExploreScreen({ navigation, tabNavigation, onOpenVenue }
       >
         {selectedType === "Clubs" ? (
           <>
-            {/* Club filters: Music */}
-            {clubFilterOptions.music.map((music) => (
-              <FilterChip
-                key={music}
-                label={music}
-                isActive={activeFilters.music?.includes(music) || false}
-                onPress={() => toggleFilter("music", music)}
-              />
+            {clubFilterOptions.crowd.map(c => (
+              <FilterChip key={`crowd-${c}`} label={c}
+                isActive={activeFilters.crowd?.includes(c)}
+                onPress={() => toggleFilter("crowd", c)} />
             ))}
-            {/* Club filters: Cover */}
-            {clubFilterOptions.cover.map((cover) => (
-              <FilterChip
-                key={cover}
-                label={cover}
-                isActive={activeFilters.cover?.includes(cover) || false}
-                onPress={() => toggleFilter("cover", cover)}
-              />
+            {clubFilterOptions.music.map(m => (
+              <FilterChip key={`music-${m}`} label={m}
+                isActive={activeFilters.music?.includes(m)}
+                onPress={() => toggleFilter("music", m)} />
             ))}
-            {/* Club filters: Crowd */}
-            {clubFilterOptions.crowd.map((crowd) => (
-              <FilterChip
-                key={crowd}
-                label={crowd}
-                isActive={activeFilters.crowd?.includes(crowd) || false}
-                onPress={() => toggleFilter("crowd", crowd)}
-              />
+            {clubFilterOptions.cover.map(co => (
+              <FilterChip key={`cover-${co}`} label={`Cover: ${co}`}
+                isActive={activeFilters.cover?.includes(co)}
+                onPress={() => toggleFilter("cover", co)} />
+            ))}
+            {clubFilterOptions.line.map(l => (
+              <FilterChip key={`line-${l}`} label={`Line: ${l}`}
+                isActive={activeFilters.line?.includes(l)}
+                onPress={() => toggleFilter("line", l)} />
             ))}
           </>
         ) : (
           <>
-            {/* Bar filters: Bar Type */}
-            {barFilterOptions.bar_type.map((barType) => (
-              <FilterChip
-                key={barType}
-                label={barType.charAt(0).toUpperCase() + barType.slice(1)}
-                isActive={activeFilters.bar_type?.includes(barType) || false}
-                onPress={() => toggleFilter("bar_type", barType)}
-              />
+            {barFilterOptions.crowd.map(c => (
+              <FilterChip key={`crowd-${c}`} label={c}
+                isActive={activeFilters.crowd?.includes(c)}
+                onPress={() => toggleFilter("crowd", c)} />
             ))}
-            {/* Bar filters: Drinks Price */}
-            {barFilterOptions.drinks_price.map((price) => (
-              <FilterChip
-                key={price}
-                label={price}
-                isActive={activeFilters.drinks_price?.includes(price) || false}
-                onPress={() => toggleFilter("drinks_price", price)}
-              />
+            {barFilterOptions.drinks_price.map(p => (
+              <FilterChip key={`price-${p}`} label={`Drinks: ${p}`}
+                isActive={activeFilters.drinks_price?.includes(p)}
+                onPress={() => toggleFilter("drinks_price", p)} />
             ))}
-            {/* Bar filters: Ratio */}
-            {barFilterOptions.ratio.map((ratio) => (
-              <FilterChip
-                key={ratio}
-                label={ratio}
-                isActive={activeFilters.ratio?.includes(ratio) || false}
-                onPress={() => toggleFilter("ratio", ratio)}
-              />
-            ))}
-            {/* Bar filters: Crowd */}
-            {barFilterOptions.crowd.map((crowd) => (
-              <FilterChip
-                key={crowd}
-                label={crowd}
-                isActive={activeFilters.crowd?.includes(crowd) || false}
-                onPress={() => toggleFilter("crowd", crowd)}
-              />
+            {barFilterOptions.ratio.map(r => (
+              <FilterChip key={`ratio-${r}`} label={r}
+                isActive={activeFilters.ratio?.includes(r)}
+                onPress={() => toggleFilter("ratio", r)} />
             ))}
           </>
         )}
       </ScrollView>
 
-      {/* Neighborhoods */}
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      {/* Active-filter count badge + clear button */}
+      {hasAnyActiveFilter && (
+        <View style={styles.activeFilterRow}>
+          <Text style={styles.activeFilterCount}>
+            {Object.values(activeFilters).flat().length} filter{Object.values(activeFilters).flat().length !== 1 ? "s" : ""} active
+          </Text>
+          <TouchableOpacity onPress={clearFilters} style={styles.clearBtn}>
+            <Text style={styles.clearBtnText}>Clear all</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Venue cards — same cards as HomeScreen */}
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor="#A855F7"
+            colors={["#A855F7"]}
+          />
+        }
+      >
         {loading ? (
           <View style={styles.loadingContainer}>
             <Text style={styles.loadingText}>Loading venues…</Text>
           </View>
+        ) : sortedFilteredVenues.length > 0 ? (
+          sortedFilteredVenues.map((venue, index) =>
+            renderVenueCard(venue, index, sortedFilteredVenues.length)
+          )
         ) : (
-          <>
-            {neighborhoodGroups.length > 0 ? (
-              <View style={styles.neighborhoodsContainer}>
-                {neighborhoodGroups.map((group) => renderNeighborhoodCard(group))}
-              </View>
+          <View style={styles.emptyContainer}>
+            {hasAnyActiveFilter ? (
+              <>
+                <Ionicons name="funnel-outline" size={48} color="#6B7280" style={{ marginBottom: 12 }} />
+                <Text style={styles.emptyText}>No venues match your filters</Text>
+                <Text style={styles.emptySubtext}>Try adjusting or clearing filters</Text>
+                <TouchableOpacity style={styles.clearFiltersButton} onPress={clearFilters}>
+                  <Text style={styles.clearFiltersText}>Clear all filters</Text>
+                </TouchableOpacity>
+              </>
             ) : (
-              <View style={styles.emptyContainer}>
-                {/* Check if any filters are active */}
-                {Object.values(activeFilters).some(arr => Array.isArray(arr) && arr.length > 0) ? (
-                  <>
-                    <Ionicons name="funnel-outline" size={48} color="#6B7280" style={{ marginBottom: 12 }} />
-                    <Text style={styles.emptyText}>No venues match your filters</Text>
-                    <Text style={styles.emptySubtext}>Try adjusting or clearing filters</Text>
-                    <TouchableOpacity
-                      style={styles.clearFiltersButton}
-                      onPress={() => setActiveFilters(prev => {
-                        const currentNeighborhood = prev.neighborhood || [];
-                        if (selectedType === "Clubs") {
-                          return { music: [], cover: [], crowd: [], neighborhood: currentNeighborhood };
-                        } else {
-                          return { bar_type: [], drinks_price: [], ratio: [], crowd: [], neighborhood: currentNeighborhood };
-                        }
-                      })}
-                    >
-                      <Text style={styles.clearFiltersText}>Clear all filters</Text>
-                    </TouchableOpacity>
-                  </>
-                ) : (
-                  <>
-                    <Ionicons name="location-outline" size={48} color="#6B7280" style={{ marginBottom: 12 }} />
-                    <Text style={styles.emptyText}>No {selectedType.toLowerCase()} found</Text>
-                    <Text style={styles.emptySubtext}>Check back later for new venues</Text>
-                  </>
-                )}
-              </View>
+              <>
+                <Ionicons name="location-outline" size={48} color="#6B7280" style={{ marginBottom: 12 }} />
+                <Text style={styles.emptyText}>No {selectedType.toLowerCase()} found</Text>
+                <Text style={styles.emptySubtext}>Check back later for new venues</Text>
+              </>
             )}
-          </>
+          </View>
         )}
       </ScrollView>
     </View>
@@ -484,16 +469,71 @@ export default function ExploreScreen({ navigation, tabNavigation, onOpenVenue }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#050013" },
+
+  lockedContainer: {
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  lockedContent: {
+    alignItems: "center",
+    paddingHorizontal: 40,
+  },
+  lockedIconWrap: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: "rgba(168,85,247,0.12)",
+    borderWidth: 1.5,
+    borderColor: "rgba(168,85,247,0.35)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 24,
+  },
+  lockedTitle: {
+    fontSize: 24,
+    fontWeight: "800",
+    color: "#F5F3FF",
+    marginBottom: 12,
+    textAlign: "center",
+  },
+  lockedSubtitle: {
+    fontSize: 15,
+    color: "#9CA3AF",
+    textAlign: "center",
+    lineHeight: 22,
+    marginBottom: 32,
+  },
+  lockedButton: {
+    backgroundColor: "#A855F7",
+    borderRadius: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 40,
+    shadowColor: "#A855F7",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.45,
+    shadowRadius: 14,
+    elevation: 10,
+  },
+  lockedButtonText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "700",
+    letterSpacing: 0.2,
+  },
+
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingTop: 12,
     paddingBottom: 8,
   },
-  headerTitle: { fontSize: 28, fontWeight: "800", color: "#F5F3FF" },
-  profileIconButton: { padding: 4 },
+  headerTitle: {
+    fontSize: 28,
+    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
+    color: "#F5F3FF",
+  },
 
   toggleContainer: {
     flexDirection: "row",
@@ -525,7 +565,7 @@ const styles = StyleSheet.create({
   searchIcon: { marginRight: 8 },
   searchInput: { flex: 1, color: "#F9FAFB", fontSize: 15 },
 
-  filtersScroll: { maxHeight: 40, marginBottom: 12 },
+  filtersScroll: { maxHeight: 40, marginBottom: 6 },
   filtersContent: { paddingHorizontal: 16, gap: 6 },
   filterChip: {
     paddingHorizontal: 10,
@@ -545,51 +585,34 @@ const styles = StyleSheet.create({
   filterChipText: { color: "#E5E7EB", fontSize: 11, fontWeight: "600" },
   filterChipTextActive: { color: "#F9FAFB", fontWeight: "700" },
 
-  scrollView: { flex: 1 },
-  scrollContent: { 
-    paddingHorizontal: SCREEN_PADDING_HORIZONTAL,
-    paddingTop: SCREEN_PADDING_TOP,
-    paddingBottom: SCREEN_PADDING_BOTTOM,
-  },
-
-  neighborhoodsContainer: { },
-  neighborhoodCard: {
-    backgroundColor: "#0B0625",
-    borderRadius: 12,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: "rgba(168,85,247,0.4)",
-    overflow: "hidden",
-  },
-  neighborhoodCardContent: {
+  activeFilterRow: {
     flexDirection: "row",
+    alignItems: "center",
     justifyContent: "space-between",
-    alignItems: "center",
-    padding: 16,
+    marginHorizontal: 16,
+    marginTop: 4,
+    marginBottom: 8,
   },
-  neighborhoodCardLeft: {
-    flex: 1,
-  },
-  neighborhoodCardName: {
-    color: "#F9FAFB",
-    fontSize: 18,
-    fontWeight: "700",
-    marginBottom: 4,
-  },
-  neighborhoodCardCount: {
-    color: "#9CA3AF",
-    fontSize: 13,
-    fontWeight: "500",
-  },
-  neighborhoodCardRight: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  neighborhoodCardTime: {
+  activeFilterCount: {
     color: "#A855F7",
     fontSize: 12,
     fontWeight: "600",
+  },
+  clearBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 8,
+    backgroundColor: "rgba(168,85,247,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(168,85,247,0.3)",
+  },
+  clearBtnText: { color: "#C084FC", fontSize: 12, fontWeight: "600" },
+
+  scrollView: { flex: 1 },
+  scrollContent: {
+    paddingHorizontal: SCREEN_PADDING_HORIZONTAL,
+    paddingTop: SCREEN_PADDING_TOP,
+    paddingBottom: SCREEN_PADDING_BOTTOM,
   },
 
   loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center", paddingVertical: 48 },
@@ -597,9 +620,9 @@ const styles = StyleSheet.create({
 
   emptyContainer: { padding: 32, alignItems: "center" },
   emptyText: { color: "#9CA3AF", fontSize: 14 },
-  emptySubtext: { 
-    color: "#6B7280", 
-    fontSize: 13, 
+  emptySubtext: {
+    color: "#6B7280",
+    fontSize: 13,
     marginTop: 4,
     textAlign: "center",
   },
@@ -612,9 +635,5 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#A855F7",
   },
-  clearFiltersText: {
-    color: "#A855F7",
-    fontSize: 14,
-    fontWeight: "600",
-  },
+  clearFiltersText: { color: "#A855F7", fontSize: 14, fontWeight: "600" },
 });
