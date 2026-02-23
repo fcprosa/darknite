@@ -15,9 +15,7 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.darknite.app",
       "usesAppleSignIn": true,
-      "infoPlist": {
-        "UIBackgroundModes": ["remote-notification"]
-      }
+      "infoPlist": {}
     },
     "plugins": [
       "expo-apple-authentication",

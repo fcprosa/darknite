@@ -19,7 +19,6 @@ module.exports = {
       buildNumber: "1",
       usesAppleSignIn: true,
       infoPlist: {
-        UIBackgroundModes: ["remote-notification"],
         NSLocationWhenInUseUsageDescription: "DarkNite uses your location to show venues near you."
       }
     },

@@ -68,6 +68,7 @@ export default function VenueDetailsLovable({ venue, onBack, onOpenSheet, refres
   const [latestBarCrowd, setLatestBarCrowd] = useState(null);
   const [latestLineWait, setLatestLineWait] = useState(null);
   const [userHasVibeTonight, setUserHasVibeTonight] = useState(false);
+  const [hiddenVibeIds, setHiddenVibeIds] = useState(new Set());
 
   const headerAnim = useRef(new Animated.Value(0)).current;
   const contentAnim = useRef(new Animated.Value(50)).current;
@@ -237,6 +238,38 @@ export default function VenueDetailsLovable({ venue, onBack, onOpenSheet, refres
         upsertLatestLineWait(venue.id, latestLineWait);
       }
     }, 500);
+  };
+
+  const handleVibeOptions = (vibeId) => {
+    Alert.alert(
+      "Vibe Options",
+      null,
+      [
+        {
+          text: "Report Vibe",
+          style: "destructive",
+          onPress: () => {
+            setHiddenVibeIds((prev) => new Set([...prev, vibeId]));
+            Alert.alert(
+              "Thanks for reporting",
+              "Our team will review this within 24 hours."
+            );
+          },
+        },
+        {
+          text: "Block User",
+          style: "destructive",
+          onPress: () => {
+            setHiddenVibeIds((prev) => new Set([...prev, vibeId]));
+            Alert.alert(
+              "User blocked",
+              "You will no longer see vibes from this user."
+            );
+          },
+        },
+        { text: "Cancel", style: "cancel" },
+      ]
+    );
   };
 
   const handleOpenMaps = () => {
@@ -552,8 +585,8 @@ export default function VenueDetailsLovable({ venue, onBack, onOpenSheet, refres
               />
             ) : (
               <View style={styles.timelineContainer}>
-                {(recentUpdates.slice(0, 4) || []).map((item, index) => {
-                  const isLast = index === Math.min(3, recentUpdates.length - 1);
+                {(recentUpdates.filter((u) => !hiddenVibeIds.has(u.id)).slice(0, 4) || []).map((item, index, arr) => {
+                  const isLast = index === Math.min(3, arr.length - 1);
                   const trend = item._type === 'vibe' ? computeTrendForVibe(item, recentUpdates) : null;
                   
                   const formatTimelineTime = (timestamp) => {
@@ -687,6 +720,14 @@ export default function VenueDetailsLovable({ venue, onBack, onOpenSheet, refres
                           ))}
                         </View>
                       </View>
+                      {/* Three-dots report/block button */}
+                      <TouchableOpacity
+                        style={styles.vibeMenuButton}
+                        onPress={() => handleVibeOptions(vibe.id)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Ionicons name="ellipsis-horizontal" size={16} color="rgba(255,255,255,0.25)" />
+                      </TouchableOpacity>
                     </View>
                   );
                 })}
@@ -1096,6 +1137,12 @@ const styles = StyleSheet.create({
   timelineRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
+  },
+  vibeMenuButton: {
+    paddingTop: 10,
+    paddingLeft: 8,
+    paddingRight: 2,
+    alignSelf: 'flex-start',
   },
   timelineRowDivider: {
     // No longer applied in renders — kept to avoid stale references

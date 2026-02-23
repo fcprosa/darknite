@@ -53,10 +53,10 @@ export function initSentry() {
         // Enable Logs
         enableLogs: __DEV__,
         
-        // Configure Session Replay
-        replaysSessionSampleRate: 0.1,
-        replaysOnErrorSampleRate: 1,
-        integrations: [Sentry.mobileReplayIntegration(), Sentry.feedbackIntegration()],
+        // Session Replay disabled for V1 (App Store privacy compliance)
+        // replaysSessionSampleRate: 0.1,
+        // replaysOnErrorSampleRate: 1,
+        integrations: [Sentry.feedbackIntegration()],
         
         enableInExpoDevelopment: false, // Set to true to test in dev mode
         environment: process.env.NODE_ENV || 'development',
