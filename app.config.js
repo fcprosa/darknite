@@ -19,7 +19,8 @@ module.exports = {
       buildNumber: "1",
       usesAppleSignIn: true,
       infoPlist: {
-        NSLocationWhenInUseUsageDescription: "DarkNite uses your location to show venues near you."
+        NSLocationWhenInUseUsageDescription: "DarkNite uses your location to show venues near you.",
+        ITSAppUsesNonExemptEncryption: false
       }
     },
     scheme: "darknite",
