@@ -478,9 +478,19 @@ export async function fetchVibeWithProfile(vibeId) {
 }
 
 /**
- * Create a new vibe
+ * Create a new vibe via the server-side submit_venue_vibe RPC.
+ *
+ * The RPC enforces two rate limits (30-min per-venue, 15/12h global) and
+ * handles the upsert internally, so the client only sends data and reads the
+ * result.
+ *
+ * Return shape:
+ *   { data, error, userMessage, rateLimitType, minutesRemaining }
+ *
+ *   rateLimitType: 'venue' | 'global' | null
+ *   minutesRemaining: number (only set when rateLimitType === 'venue')
+ *
  * @param {Object} vibeData - Vibe data object
- * @returns {Promise<{data: Object|null, error: Error|null, userMessage: string|null}>}
  */
 export async function createVibe(vibeData) {
   try {
@@ -491,189 +501,99 @@ export async function createVibe(vibeData) {
         data: null,
         error: new Error(validation.error),
         userMessage: "Invalid vibe data. Please try again.",
+        rateLimitType: null,
+        minutesRemaining: null,
       };
     }
 
-    // ── Upsert Logic ──────────────────────────────────────────────
-    // Check if this user already posted a vibe at this venue in the last 4 hours.
-    // If yes: UPDATE that row (preserves timeline, prevents duplicates).
-    // If no: INSERT a new row.
-    const UPSERT_WINDOW_HOURS = 4;
-    const windowStart = new Date(
-      Date.now() - UPSERT_WINDOW_HOURS * 60 * 60 * 1000
-    ).toISOString();
-
-    let existingVibeId = null;
-
-    try {
-      const { data: existing, error: lookupError } = await supabase
-        .from("vibes")
-        .select("id")
-        .eq("venue_id", vibeData.venue_id)
-        .eq("user_id", vibeData.user_id)
-        .gte("created_at", windowStart)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (!lookupError && existing?.id) {
-        existingVibeId = existing.id;
+    const { data: rpcResult, error } = await supabase.rpc(
+      "submit_venue_vibe",
+      {
+        p_venue_id:          vibeData.venue_id,
+        p_crowd:             vibeData.crowd             ?? null,
+        p_music:             vibeData.music             ?? null,
+        p_line:              vibeData.line              ?? null,
+        p_cover:             vibeData.cover             ?? null,
+        p_drinks_price_tier: vibeData.drinks_price_tier ?? null,
+        p_crowd_vibe:        vibeData.crowd_vibe        ?? null,
+        p_age_range:         vibeData.age_range         ?? null,
+        p_confidence_score:  vibeData.confidence_score  ?? null,
       }
-    } catch (lookupErr) {
-      // If lookup fails, fall through to INSERT (safe fallback)
-      log.error("Upsert lookup failed, falling through to insert:", lookupErr);
-    }
-
-    let data, error;
-
-    if (existingVibeId) {
-      // ── UPDATE existing vibe ──
-      // Build update payload: only include fields that are non-null in the new data.
-      // This prevents clearing fields the user skipped this time but filled before.
-      const updatePayload = {};
-      const updatableFields = [
-        "crowd", "music", "line", "cover", "ratio",
-        "bar_type", "drinks_price_tier", "age_range",
-        "crowd_vibe", "confidence_score",
-      ];
-
-      for (const field of updatableFields) {
-        if (vibeData[field] !== null && vibeData[field] !== undefined) {
-          updatePayload[field] = vibeData[field];
-        }
-      }
-
-      // Always update the timestamp so the vibe appears "fresh"
-      updatePayload.created_at = new Date().toISOString();
-
-      const result = await supabase
-        .from("vibes")
-        .update(updatePayload)
-        .eq("id", existingVibeId)
-        .select(VIBE_SELECT_FIELDS)
-        .maybeSingle();
-
-      data = result.data;
-      error = result.error;
-
-      // If SELECT with join failed (likely due to user_profiles join), fetch without join
-      if (!error && !data) {
-        log.warn("UPDATE succeeded but SELECT with join returned no rows, fetching without join");
-        
-        const fallbackResult = await supabase
-          .from("vibes")
-          .select("id, created_at, venue_id, user_id, crowd, ratio, line, cover, music, bar_type, drinks_price_tier, age_range, crowd_vibe, confidence_score, verified")
-          .eq("id", existingVibeId)
-          .maybeSingle();
-        
-        if (fallbackResult.data) {
-          data = fallbackResult.data;
-          // Manually set is_verified to false since join failed
-          data.is_verified = false;
-          log.log("Vibe updated (upsert) successfully via fallback, id:", existingVibeId);
-        } else {
-          log.error("UPDATE succeeded but fallback SELECT also returned no rows");
-        }
-      } else if (!error && data) {
-        log.log("Vibe updated (upsert) successfully, id:", existingVibeId);
-      } else if (error) {
-        log.error("Error after UPDATE:", error);
-      }
-    } else {
-      // ── INSERT new vibe ──
-      const result = await supabase
-        .from("vibes")
-        .insert([vibeData])
-        .select(VIBE_SELECT_FIELDS)
-        .maybeSingle();
-
-      data = result.data;
-      error = result.error;
-
-      // If SELECT with join failed (likely due to user_profiles join), fetch without join
-      if (!error && !data) {
-        log.warn("INSERT succeeded but SELECT with join returned no rows, fetching without join");
-        
-        // Fetch the most recent vibe for this venue/user (should be the one we just inserted)
-        const fallbackResult = await supabase
-          .from("vibes")
-          .select("id, created_at, venue_id, user_id, crowd, ratio, line, cover, music, bar_type, drinks_price_tier, age_range, crowd_vibe, confidence_score, verified")
-          .eq("venue_id", vibeData.venue_id)
-          .eq("user_id", vibeData.user_id)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        
-        if (fallbackResult.data) {
-          data = fallbackResult.data;
-          // Manually set is_verified to false since join failed
-          data.is_verified = false;
-          log.log("Vibe created (new) successfully via fallback");
-        } else {
-          log.error("INSERT succeeded but fallback SELECT also returned no rows");
-        }
-      } else if (!error && data) {
-        log.log("Vibe created (new) successfully");
-      } else if (error) {
-        log.error("Error after INSERT:", error);
-      }
-    }
+    );
 
     if (error) {
-      const isRateLimitError =
-        error.message?.includes("RATE_LIMIT_EXCEEDED") ||
-        (error.code === "23505" && error.message?.includes("Rate limit exceeded"));
-
-      if (isRateLimitError) {
-        log.info("Rate limit exceeded for vibe creation:", {
-          venue_id: vibeData.venue_id,
-        });
+      // ── Rate limit: per-venue cooldown ──
+      if (error.code === "P0001" && error.message === "rate_limit_venue") {
+        const match = error.details?.match(/minutes_remaining=(\d+)/);
+        const minutesRemaining = match ? parseInt(match[1], 10) : 30;
+        log.info("Per-venue rate limit hit:", { venue_id: vibeData.venue_id, minutesRemaining });
         return {
           data: null,
           error,
-          userMessage:
-            "You've posted recently for this venue — try again in ~60 minutes.",
+          userMessage: null,
+          rateLimitType: "venue",
+          minutesRemaining,
         };
       }
 
-      log.error("Error creating/updating vibe:", error);
+      // ── Rate limit: global nightly cap ──
+      if (error.code === "P0001" && error.message === "rate_limit_global") {
+        log.info("Global rate limit hit for user");
+        return {
+          data: null,
+          error,
+          userMessage: null,
+          rateLimitType: "global",
+          minutesRemaining: null,
+        };
+      }
 
+      // ── Auth error ──
       if (
         error.code === "42501" ||
         error.code === "PGRST301" ||
-        error.message?.includes("permission denied")
+        error.message?.includes("permission denied") ||
+        error.message?.includes("Authentication required")
       ) {
         return {
           data: null,
           error,
           userMessage: "Please sign in to post a vibe.",
+          rateLimitType: null,
+          minutesRemaining: null,
         };
       }
 
-      return { data: null, error, userMessage: null };
-    }
-
-    if (data) {
-      attachProfileVerified(data);
-    }
-
-    return { data, error: null, userMessage: null };
-  } catch (error) {
-    const isRateLimitError =
-      error.message?.includes("RATE_LIMIT_EXCEEDED") ||
-      error.message?.includes("Rate limit exceeded");
-
-    if (isRateLimitError) {
-      log.info("Rate limit exceeded (exception) for vibe creation");
+      log.error("Error from submit_venue_vibe RPC:", error);
       return {
         data: null,
         error,
-        userMessage:
-          "You've posted recently for this venue — try again in ~60 minutes.",
+        userMessage: null,
+        rateLimitType: null,
+        minutesRemaining: null,
       };
     }
 
-    log.error("Exception creating vibe:", error);
-    return { data: null, error, userMessage: null };
+    // RPC returns SETOF vibes — take first row
+    const rawVibe = Array.isArray(rpcResult) ? rpcResult[0] : rpcResult;
+
+    if (!rawVibe) {
+      log.warn("submit_venue_vibe returned no rows — treating as success with null data");
+      return { data: null, error: null, userMessage: null, rateLimitType: null, minutesRemaining: null };
+    }
+
+    attachProfileVerified(rawVibe);
+    log.log("Vibe submitted via RPC, id:", rawVibe.id);
+
+    return { data: rawVibe, error: null, userMessage: null, rateLimitType: null, minutesRemaining: null };
+  } catch (err) {
+    log.error("Exception in createVibe:", err);
+    return {
+      data: null,
+      error: err,
+      userMessage: null,
+      rateLimitType: null,
+      minutesRemaining: null,
+    };
   }
 }

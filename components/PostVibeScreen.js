@@ -7,7 +7,7 @@
  * Club flow: Crowd → Line  → Extras (Music, Cover, Crowd vibe, Age) → Confirmation
  */
 
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -119,7 +119,15 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
   // state-based check (React state batching can allow two taps through before
   // the re-render updates `submitting` to true).
   const isSubmittingRef = useRef(false);
-  
+
+  // ── Rate-limit state ──
+  // Set when the RPC returns a rate limit error; kept for the lifetime of this
+  // screen instance so the button stays disabled without further server calls.
+  const [rateLimitInfo, setRateLimitInfo] = useState(null); // { type: 'venue'|'global', minutesRemaining: number|null }
+  const [toastVisible, setToastVisible] = useState(false);
+  const toastFade = useRef(new Animated.Value(0)).current;
+  const toastTimerRef = useRef(null);
+
   // ── Confirmation state ──
   const [previousVibeForConfirm, setPreviousVibeForConfirm] = useState(null);
   const [tonightVibeCount, setTonightVibeCount] = useState(1);
@@ -127,6 +135,23 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
   // ── Animation ──
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const slideAnim = useRef(new Animated.Value(0)).current;
+
+  // ── Toast helper ──
+  const showRateLimitToast = useCallback((info) => {
+    setRateLimitInfo(info);
+    setToastVisible(true);
+    toastFade.setValue(0);
+    Animated.timing(toastFade, { toValue: 1, duration: 220, useNativeDriver: true }).start();
+    clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => {
+      Animated.timing(toastFade, { toValue: 0, duration: 300, useNativeDriver: true }).start(() =>
+        setToastVisible(false)
+      );
+    }, 4500);
+  }, [toastFade]);
+
+  // Cleanup toast timer on unmount
+  useEffect(() => () => clearTimeout(toastTimerRef.current), []);
 
   const goToStep = useCallback((nextStep) => {
       Animated.parallel([
@@ -199,6 +224,13 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
     // preventing duplicate DB writes from rapid double-taps.
     if (isSubmittingRef.current) return;
 
+    // Local rate-limit guard: if we already received a rate limit this session,
+    // re-show the toast instead of hitting the server again.
+    if (rateLimitInfo) {
+      showRateLimitToast(rateLimitInfo);
+      return;
+    }
+
     if (!user?.id || !venueId) {
       if (!user?.id) {
         Alert.alert("Sign in required", "Please sign in to post a vibe.");
@@ -232,6 +264,13 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
       const result = await createVibe(vibeData);
 
       if (result?.error) {
+        if (result.rateLimitType) {
+          showRateLimitToast({
+            type: result.rateLimitType,
+            minutesRemaining: result.minutesRemaining,
+          });
+          return;
+        }
         const errorMessage = result?.userMessage || "Failed to post. Try again.";
         setError(errorMessage);
         return;
@@ -278,7 +317,7 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
       isSubmittingRef.current = false;
       setSubmitting(false);
     }
-  }, [crowd, music, line, cover, drinksTier, crowdVibe, ageRange, venueId, user, navigation, goToStep, upsertLatestVibe, onBack, onSuccess, latestVibesByVenueId]);
+  }, [crowd, music, line, cover, drinksTier, crowdVibe, ageRange, venueId, user, navigation, goToStep, upsertLatestVibe, onBack, onSuccess, latestVibesByVenueId, rateLimitInfo, showRateLimitToast]);
 
   // ════════════════════════════════════════════════════════════
   // STEP 1: CROWD (mandatory, both types)
@@ -440,18 +479,25 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
 
       {/* ACTION BUTTONS */}
       <View style={s.actions}>
-        <TouchableOpacity style={s.skipBtn} onPress={submitVibe} activeOpacity={0.7}>
-          <Text style={s.skipBtnText}>Skip</Text>
-        </TouchableOpacity>
-            <TouchableOpacity
-          style={[s.doneBtn, submitting && { opacity: 0.5 }]}
+        <TouchableOpacity
+          style={[s.skipBtn, (submitting || !!rateLimitInfo) && { opacity: 0.45 }]}
           onPress={submitVibe}
           activeOpacity={0.7}
-          disabled={submitting}
+          disabled={submitting || !!rateLimitInfo}
         >
-          <Text style={s.doneBtnText}>{submitting ? "Posting..." : "Done ✓"}</Text>
-            </TouchableOpacity>
-          </View>
+          <Text style={s.skipBtnText}>Skip</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[s.doneBtn, (submitting || !!rateLimitInfo) && { opacity: 0.45 }]}
+          onPress={submitVibe}
+          activeOpacity={0.7}
+          disabled={submitting || !!rateLimitInfo}
+        >
+          <Text style={s.doneBtnText}>
+            {submitting ? "Posting..." : rateLimitInfo ? "Cooldown Active" : "Done ✓"}
+          </Text>
+        </TouchableOpacity>
+      </View>
 
       {error && <Text style={s.error}>{error}</Text>}
     </ScrollView>
@@ -542,7 +588,23 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
         {step === 3 && renderStep3()}
         {step === 4 && renderStep4()}
       </Animated.View>
-        </View>
+
+      {/* RATE-LIMIT TOAST */}
+      {toastVisible && rateLimitInfo && (
+        <Animated.View style={[s.toast, { opacity: toastFade }]}>
+          <Text style={s.toastTitle}>
+            {rateLimitInfo.type === "venue"
+              ? "Vibe Check on Cooldown ⏳"
+              : "Night Owl Limit Reached 🦉"}
+          </Text>
+          <Text style={s.toastBody}>
+            {rateLimitInfo.type === "venue"
+              ? `You just updated the vibe here! Let the dust settle. Try again in ${rateLimitInfo.minutesRemaining} min${rateLimitInfo.minutesRemaining !== 1 ? "s" : ""}.`
+              : "You've been everywhere tonight! Take a breather. You can drop more vibes tomorrow."}
+          </Text>
+        </Animated.View>
+      )}
+    </View>
   );
 }
 
@@ -709,5 +771,36 @@ const s = StyleSheet.create({
     color: "#9CA3AF",
     marginTop: 8,
     fontWeight: "500",
+  },
+
+  // ── Rate-limit Toast ──
+  toast: {
+    position: "absolute",
+    bottom: 36,
+    left: 20,
+    right: 20,
+    backgroundColor: "#1A0D2E",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(168,85,247,0.4)",
+    paddingVertical: 16,
+    paddingHorizontal: 18,
+    shadowColor: "#A855F7",
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 8,
+  },
+  toastTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#E9D5FF",
+    marginBottom: 4,
+  },
+  toastBody: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: "#9CA3AF",
+    lineHeight: 18,
   },
 });
