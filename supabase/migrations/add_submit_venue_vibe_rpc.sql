@@ -5,7 +5,12 @@
 --   1. rate_limit_venue  — 1 vibe per venue per 30 minutes (per user)
 --   2. rate_limit_global — max 15 vibes in a rolling 12-hour window (per user)
 --
--- After passing both checks it applies an upsert strategy:
+-- Admin bypass: if auth.uid() matches ADMIN_UUID both rate-limit checks are
+-- skipped entirely. This allows cold-start data seeding without hitting
+-- per-venue or nightly caps. The 4-hour upsert window still applies so
+-- repeated calls for the same venue UPDATE rather than INSERT duplicate rows.
+--
+-- After passing the checks (or bypassing them) it applies an upsert strategy:
 --   • If the user posted at this venue within the last 4 hours → UPDATE that row
 --   • Otherwise → INSERT a new row
 --
@@ -31,7 +36,12 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
+  -- ⚠️  PASTE YOUR UUID BETWEEN THE SINGLE QUOTES BELOW
+  --     Find it in: Supabase Dashboard → Authentication → Users → your row → User UID
+  ADMIN_UUID           CONSTANT uuid := '00000000-0000-0000-0000-000000000000';
+
   v_user_id            uuid;
+  v_is_admin           boolean;
   v_last_vibe_at       timestamptz;
   v_minutes_since_last float;
   v_minutes_remaining  int;
@@ -40,45 +50,53 @@ DECLARE
   v_result             vibes%ROWTYPE;
 BEGIN
   -- ── Auth guard ────────────────────────────────────────────
-  v_user_id := auth.uid();
+  v_user_id  := auth.uid();
   IF v_user_id IS NULL THEN
     RAISE EXCEPTION 'Authentication required'
       USING ERRCODE = '42501';
   END IF;
 
-  -- ── 1. Per-venue cooldown: 30 minutes ────────────────────
-  SELECT created_at INTO v_last_vibe_at
-  FROM   vibes
-  WHERE  user_id  = v_user_id
-    AND  venue_id = p_venue_id
-  ORDER  BY created_at DESC
-  LIMIT  1;
+  v_is_admin := (v_user_id = ADMIN_UUID);
 
-  IF v_last_vibe_at IS NOT NULL THEN
-    v_minutes_since_last :=
-      EXTRACT(EPOCH FROM (NOW() - v_last_vibe_at)) / 60.0;
+  -- ── 1. Per-venue cooldown: 30 minutes (skipped for admin) ─
+  IF NOT v_is_admin THEN
+    SELECT created_at INTO v_last_vibe_at
+    FROM   vibes
+    WHERE  user_id  = v_user_id
+      AND  venue_id = p_venue_id
+    ORDER  BY created_at DESC
+    LIMIT  1;
 
-    IF v_minutes_since_last < 30 THEN
-      v_minutes_remaining := CEIL(30 - v_minutes_since_last)::int;
-      RAISE EXCEPTION 'rate_limit_venue'
-        USING DETAIL  = 'minutes_remaining=' || v_minutes_remaining,
+    IF v_last_vibe_at IS NOT NULL THEN
+      v_minutes_since_last :=
+        EXTRACT(EPOCH FROM (NOW() - v_last_vibe_at)) / 60.0;
+
+      IF v_minutes_since_last < 30 THEN
+        v_minutes_remaining := CEIL(30 - v_minutes_since_last)::int;
+        RAISE EXCEPTION 'rate_limit_venue'
+          USING DETAIL  = 'minutes_remaining=' || v_minutes_remaining,
+                ERRCODE = 'P0001';
+      END IF;
+    END IF;
+  END IF;
+
+  -- ── 2. Global cap: 15 vibes per 12-hour window (skipped for admin) ──
+  IF NOT v_is_admin THEN
+    SELECT COUNT(*) INTO v_global_count
+    FROM   vibes
+    WHERE  user_id    = v_user_id
+      AND  created_at > NOW() - INTERVAL '12 hours';
+
+    IF v_global_count >= 15 THEN
+      RAISE EXCEPTION 'rate_limit_global'
+        USING DETAIL  = 'count=' || v_global_count,
               ERRCODE = 'P0001';
     END IF;
   END IF;
 
-  -- ── 2. Global cap: 15 vibes per 12-hour window ───────────
-  SELECT COUNT(*) INTO v_global_count
-  FROM   vibes
-  WHERE  user_id    = v_user_id
-    AND  created_at > NOW() - INTERVAL '12 hours';
-
-  IF v_global_count >= 15 THEN
-    RAISE EXCEPTION 'rate_limit_global'
-      USING DETAIL  = 'count=' || v_global_count,
-            ERRCODE = 'P0001';
-  END IF;
-
   -- ── 3. Upsert: UPDATE within 4 h, otherwise INSERT ───────
+  --    (applies to everyone including admin — prevents duplicate rows
+  --     when tweaking the same venue multiple times in a seeding session)
   SELECT id INTO v_existing_vibe_id
   FROM   vibes
   WHERE  user_id    = v_user_id
