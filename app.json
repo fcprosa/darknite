@@ -15,7 +15,8 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.darknite.app",
       "usesAppleSignIn": true,
-      "infoPlist": {}
+      "infoPlist": {},
+      "buildNumber": "2"
     },
     "plugins": [
       "expo-apple-authentication",
