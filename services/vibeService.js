@@ -522,6 +522,20 @@ export async function createVibe(vibeData) {
     );
 
     if (error) {
+      // ── Rate limit: global speed limit (any venue, 10 min) ──
+      if (error.code === "P0001" && error.message === "rate_limit_speed") {
+        const match = error.details?.match(/minutes_remaining=(\d+)/);
+        const minutesRemaining = match ? parseInt(match[1], 10) : 10;
+        log.info("Global speed limit hit:", { minutesRemaining });
+        return {
+          data: null,
+          error,
+          userMessage: null,
+          rateLimitType: "speed",
+          minutesRemaining,
+        };
+      }
+
       // ── Rate limit: per-venue cooldown ──
       if (error.code === "P0001" && error.message === "rate_limit_venue") {
         const match = error.details?.match(/minutes_remaining=(\d+)/);

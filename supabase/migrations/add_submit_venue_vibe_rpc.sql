@@ -1,14 +1,15 @@
 -- ═══════════════════════════════════════════════════════════════
 -- submit_venue_vibe RPC — Server-authoritative vibe submission
 --
--- Enforces two rate limits before accepting a new vibe:
---   1. rate_limit_venue  — 1 vibe per venue per 30 minutes (per user)
---   2. rate_limit_global — max 15 vibes in a rolling 12-hour window (per user)
+-- Enforces three rate limits before accepting a new vibe:
+--   1. rate_limit_speed  — 10 minutes between ANY submission (any venue)
+--   2. rate_limit_venue  — 30 minutes between submissions at the SAME venue
+--   3. rate_limit_global — max 15 vibes in a rolling 12-hour window
 --
--- Admin bypass: if auth.uid() matches ADMIN_UUID both rate-limit checks are
+-- Admin bypass: if auth.uid() matches ADMIN_UUID all three checks are
 -- skipped entirely. This allows cold-start data seeding without hitting
--- per-venue or nightly caps. The 4-hour upsert window still applies so
--- repeated calls for the same venue UPDATE rather than INSERT duplicate rows.
+-- any caps. The 4-hour upsert window still applies so repeated calls for
+-- the same venue UPDATE rather than INSERT duplicate rows.
 --
 -- After passing the checks (or bypassing them) it applies an upsert strategy:
 --   • If the user posted at this venue within the last 4 hours → UPDATE that row
@@ -42,6 +43,7 @@ DECLARE
 
   v_user_id            uuid;
   v_is_admin           boolean;
+  v_last_any_vibe_at   timestamptz;
   v_last_vibe_at       timestamptz;
   v_minutes_since_last float;
   v_minutes_remaining  int;
@@ -58,7 +60,28 @@ BEGIN
 
   v_is_admin := (v_user_id = ADMIN_UUID);
 
-  -- ── 1. Per-venue cooldown: 30 minutes (skipped for admin) ─
+  -- ── 1. Global speed limit: 10 minutes between ANY submission (skipped for admin) ──
+  IF NOT v_is_admin THEN
+    SELECT created_at INTO v_last_any_vibe_at
+    FROM   vibes
+    WHERE  user_id = v_user_id
+    ORDER  BY created_at DESC
+    LIMIT  1;
+
+    IF v_last_any_vibe_at IS NOT NULL THEN
+      v_minutes_since_last :=
+        EXTRACT(EPOCH FROM (NOW() - v_last_any_vibe_at)) / 60.0;
+
+      IF v_minutes_since_last < 10 THEN
+        v_minutes_remaining := CEIL(10 - v_minutes_since_last)::int;
+        RAISE EXCEPTION 'rate_limit_speed'
+          USING DETAIL  = 'minutes_remaining=' || v_minutes_remaining,
+                ERRCODE = 'P0001';
+      END IF;
+    END IF;
+  END IF;
+
+  -- ── 2. Per-venue cooldown: 30 minutes (skipped for admin) ─
   IF NOT v_is_admin THEN
     SELECT created_at INTO v_last_vibe_at
     FROM   vibes
@@ -80,7 +103,7 @@ BEGIN
     END IF;
   END IF;
 
-  -- ── 2. Global cap: 15 vibes per 12-hour window (skipped for admin) ──
+  -- ── 3. Global cap: 15 vibes per 12-hour window (skipped for admin) ──
   IF NOT v_is_admin THEN
     SELECT COUNT(*) INTO v_global_count
     FROM   vibes
@@ -94,7 +117,7 @@ BEGIN
     END IF;
   END IF;
 
-  -- ── 3. Upsert: UPDATE within 4 h, otherwise INSERT ───────
+  -- ── 4. Upsert: UPDATE within 4 h, otherwise INSERT ───────
   --    (applies to everyone including admin — prevents duplicate rows
   --     when tweaking the same venue multiple times in a seeding session)
   SELECT id INTO v_existing_vibe_id

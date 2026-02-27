@@ -593,12 +593,16 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
       {toastVisible && rateLimitInfo && (
         <Animated.View style={[s.toast, { opacity: toastFade }]}>
           <Text style={s.toastTitle}>
-            {rateLimitInfo.type === "venue"
+            {rateLimitInfo.type === "speed"
+              ? "Moving too fast! 🏃‍♂️"
+              : rateLimitInfo.type === "venue"
               ? "Vibe Check on Cooldown ⏳"
               : "Night Owl Limit Reached 🦉"}
           </Text>
           <Text style={s.toastBody}>
-            {rateLimitInfo.type === "venue"
+            {rateLimitInfo.type === "speed"
+              ? `You just dropped a vibe. Walk to the next spot and try again in ${rateLimitInfo.minutesRemaining} min${rateLimitInfo.minutesRemaining !== 1 ? "s" : ""}.`
+              : rateLimitInfo.type === "venue"
               ? `You just updated the vibe here! Let the dust settle. Try again in ${rateLimitInfo.minutesRemaining} min${rateLimitInfo.minutesRemaining !== 1 ? "s" : ""}.`
               : "You've been everywhere tonight! Take a breather. You can drop more vibes tomorrow."}
           </Text>
