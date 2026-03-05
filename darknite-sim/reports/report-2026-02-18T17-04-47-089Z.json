@@ -1,0 +1,119 @@
+{
+  "meta": {
+    "startTime": "2026-02-18T17:02:39.454Z",
+    "endTime": "2026-02-18T17:04:46.036Z",
+    "durationMs": 126582,
+    "userCount": 15,
+    "concurrencyLimit": 8,
+    "chaosEnabled": false
+  },
+  "summary": {
+    "totalActions": 525,
+    "successRate": 0.9295,
+    "errorRate": 0.0705,
+    "chaosDrops": 0,
+    "chaosSlows": 0,
+    "chaosRetries": 0
+  },
+  "latency": {
+    "byAction": {
+      "FETCH_FEED": {
+        "p50": 99,
+        "p75": 164,
+        "p90": 232,
+        "p95": 315,
+        "p99": 373,
+        "max": 459,
+        "count": 143
+      },
+      "OPEN_VENUE": {
+        "p50": 159,
+        "p75": 220,
+        "p90": 290,
+        "p95": 332,
+        "p99": 445,
+        "max": 592,
+        "count": 137
+      },
+      "POST_UPDATE": {
+        "p50": 81,
+        "p75": 115,
+        "p90": 207,
+        "p95": 258,
+        "p99": 260,
+        "max": 260,
+        "count": 26
+      },
+      "REFRESH_FEED": {
+        "p50": 146,
+        "p75": 197,
+        "p90": 297,
+        "p95": 542,
+        "p99": 1011,
+        "max": 1127,
+        "count": 207
+      },
+      "LIKE_REPORT": {
+        "p50": 180,
+        "p75": 200,
+        "p90": 222,
+        "p95": 313,
+        "p99": 313,
+        "max": 313,
+        "count": 12
+      }
+    },
+    "slowQueries": 0
+  },
+  "duplicates": {
+    "confirmed": 0,
+    "collisions": 0,
+    "records": []
+  },
+  "rls": {
+    "expected": 0,
+    "unexpected": 0,
+    "records": []
+  },
+  "race": {
+    "windows": 0,
+    "confirmed": 0,
+    "records": []
+  },
+  "idempotency": {
+    "passed": 4,
+    "failed": 0,
+    "cases": [
+      {
+        "userId": "a4f3626c-2172-4767-94d6-eef784c9b2c1",
+        "venueId": "dante",
+        "firstInsertId": null,
+        "secondInsertId": null,
+        "result": "REJECTED"
+      },
+      {
+        "userId": "acf9c270-34da-4393-9bc9-09d18f288202",
+        "venueId": "the-up-and-up",
+        "firstInsertId": null,
+        "secondInsertId": null,
+        "result": "REJECTED"
+      },
+      {
+        "userId": "e6fc8cb8-c49b-41bc-80dc-df0f8e62df83",
+        "venueId": "little-branch",
+        "firstInsertId": null,
+        "secondInsertId": null,
+        "result": "REJECTED"
+      },
+      {
+        "userId": "7853035f-eb87-42e5-b2e0-3f8e1e86515c",
+        "venueId": "tao-downtown",
+        "firstInsertId": null,
+        "secondInsertId": null,
+        "result": "REJECTED"
+      }
+    ]
+  },
+  "verdict": "PASS",
+  "failureReasons": []
+}

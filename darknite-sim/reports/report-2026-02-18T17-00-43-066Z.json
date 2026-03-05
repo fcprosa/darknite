@@ -1,0 +1,135 @@
+{
+  "meta": {
+    "startTime": "2026-02-18T16:58:34.390Z",
+    "endTime": "2026-02-18T17:00:42.188Z",
+    "durationMs": 127798,
+    "userCount": 15,
+    "concurrencyLimit": 8,
+    "chaosEnabled": true
+  },
+  "summary": {
+    "totalActions": 442,
+    "successRate": 0.9451,
+    "errorRate": 0.0549,
+    "chaosDrops": 23,
+    "chaosSlows": 31,
+    "chaosRetries": 58
+  },
+  "latency": {
+    "byAction": {
+      "FETCH_FEED": {
+        "p50": 109,
+        "p75": 270,
+        "p90": 1407,
+        "p95": 2111,
+        "p99": 2735,
+        "max": 2735,
+        "count": 90
+      },
+      "OPEN_VENUE": {
+        "p50": 190,
+        "p75": 286,
+        "p90": 802,
+        "p95": 2261,
+        "p99": 3204,
+        "max": 3204,
+        "count": 85
+      },
+      "POST_UPDATE": {
+        "p50": 84,
+        "p75": 120,
+        "p90": 173,
+        "p95": 1635,
+        "p99": 1972,
+        "max": 1972,
+        "count": 21
+      },
+      "REFRESH_FEED": {
+        "p50": 100,
+        "p75": 169,
+        "p90": 340,
+        "p95": 1571,
+        "p99": 2987,
+        "max": 3156,
+        "count": 188
+      },
+      "LIKE_REPORT": {
+        "p50": 116,
+        "p75": 155,
+        "p90": 213,
+        "p95": 213,
+        "p99": 213,
+        "max": 213,
+        "count": 8
+      }
+    },
+    "slowQueries": 27
+  },
+  "duplicates": {
+    "confirmed": 0,
+    "collisions": 0,
+    "records": []
+  },
+  "rls": {
+    "expected": 0,
+    "unexpected": 0,
+    "records": []
+  },
+  "race": {
+    "windows": 1,
+    "confirmed": 0,
+    "records": [
+      {
+        "venueId": "Schimanski",
+        "userIds": [
+          "a4f3626c-2172-4767-94d6-eef784c9b2c1",
+          "acf9c270-34da-4393-9bc9-09d18f288202"
+        ],
+        "timestamps": [
+          "2026-02-18T17:00:42.477Z",
+          "2026-02-18T17:00:42.534Z"
+        ],
+        "windowMs": 57,
+        "producedDuplicate": false
+      }
+    ]
+  },
+  "idempotency": {
+    "passed": 4,
+    "failed": 0,
+    "cases": [
+      {
+        "userId": "a4f3626c-2172-4767-94d6-eef784c9b2c1",
+        "venueId": "Schimanski",
+        "firstInsertId": null,
+        "secondInsertId": null,
+        "result": "REJECTED"
+      },
+      {
+        "userId": "acf9c270-34da-4393-9bc9-09d18f288202",
+        "venueId": "Schimanski",
+        "firstInsertId": null,
+        "secondInsertId": null,
+        "result": "REJECTED"
+      },
+      {
+        "userId": "e6fc8cb8-c49b-41bc-80dc-df0f8e62df83",
+        "venueId": "virgo",
+        "firstInsertId": null,
+        "secondInsertId": null,
+        "result": "REJECTED"
+      },
+      {
+        "userId": "7853035f-eb87-42e5-b2e0-3f8e1e86515c",
+        "venueId": "paradise-club",
+        "firstInsertId": null,
+        "secondInsertId": null,
+        "result": "REJECTED"
+      }
+    ]
+  },
+  "verdict": "FAIL",
+  "failureReasons": [
+    "OPEN_VENUE p99 latency 3204ms exceeds 3000ms threshold"
+  ]
+}
