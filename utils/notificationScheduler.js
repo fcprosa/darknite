@@ -3,6 +3,15 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const STORAGE_KEY_PREFIX = "reminder_notification_ids";
 
+// Expo Calendar trigger weekday convention: 1=Sunday, 2=Monday, ..., 7=Saturday
+const DAY_CODE_TO_EXPO_WEEKDAY = {
+  sun: 1, mon: 2, tue: 3, wed: 4, thu: 5, fri: 6, sat: 7,
+};
+
+// Module-level lock: prevents two concurrent calls from interleaving between
+// awaits and stacking duplicate notifications (the primary spam root cause).
+let _schedulingInProgress = false;
+
 function getStorageKey(userId) {
   return `${STORAGE_KEY_PREFIX}_${userId}`;
 }
@@ -192,101 +201,120 @@ function getNotificationMessage(preferredScene) {
  * @returns {Promise<string[]>} Array of scheduled notification IDs
  */
 export async function scheduleWeeklyReminders({ preferredScene, goingOutDays, userId }) {
-  if (!goingOutDays || goingOutDays.length === 0) {
-    console.warn("[NotificationScheduler] No days provided, skipping scheduling");
+  // Guard: reject concurrent calls immediately so they can't interleave between
+  // awaits and stack duplicate notifications.
+  if (_schedulingInProgress) {
+    console.warn("[NotificationScheduler] scheduleWeeklyReminders already in progress — skipping duplicate call");
     return [];
   }
+  _schedulingInProgress = true;
 
-  if (!preferredScene) {
-    console.warn("[NotificationScheduler] No preferred scene provided, skipping scheduling");
-    return [];
-  }
-
-  if (!userId) {
-    console.warn("[NotificationScheduler] No userId provided, skipping scheduling");
-    return [];
-  }
-
-  const hour = 21;
-  const minute = 30;
-  const message = "NYC is waking up. Check the live vibes or drop one if you're already out!";
-
-  // Check if settings changed - if not, skip re-scheduling
-  const newSignature = generateReminderSignature({ goingOutDays, preferredScene, hour, minute });
-  const signatureKey = getSignatureKey(userId);
   try {
-    const existingSignature = await AsyncStorage.getItem(signatureKey);
-    if (existingSignature === newSignature) {
-      console.log("[NotificationScheduler] Reminder settings unchanged, skipping re-schedule");
-      // Return existing IDs if we have them
-      const existingIdsJson = await AsyncStorage.getItem(getStorageKey(userId));
-      if (existingIdsJson) {
-        return JSON.parse(existingIdsJson);
-      }
+    if (!goingOutDays || goingOutDays.length === 0) {
+      console.warn("[NotificationScheduler] No days provided, skipping scheduling");
       return [];
     }
-  } catch (e) {
-    console.warn("[NotificationScheduler] Error checking signature:", e);
-    // Continue with scheduling if signature check fails
-  }
 
-  // 1. NUCLEAR: Cancel ALL scheduled notifications before scheduling new ones
-  // This prevents duplicates from orphaned notifications
-  try {
-    await Notifications.cancelAllScheduledNotificationsAsync();
-    console.log("[NotificationScheduler] Canceled all scheduled notifications");
-  } catch (e) {
-    console.warn("[NotificationScheduler] Error canceling all notifications:", e);
-  }
-
-  // 2. Cancel previously scheduled reminder IDs for this user (read -> cancel each -> clear)
-  await cancelExistingReminders(userId);
-
-  const notificationIds = [];
-
-  try {
-    for (const dayCode of goingOutDays) {
-      // Compute the exact next Date for this weekday at 21:30, guaranteed to be in the future
-      const triggerDate = getNextWeekdayDate(dayCode, hour, minute);
-
-      const title = "What's the move tonight? 👀";
-      const notificationId = await Notifications.scheduleNotificationAsync({
-        content: {
-          title,
-          body: message,
-          sound: true,
-          data: {
-            type: "weekly_reminder",
-            preferredScene,
-            dayCode,
-          },
-        },
-        trigger: {
-          date: triggerDate,
-        },
-      });
-
-      notificationIds.push(notificationId);
-      console.log(`[NotificationScheduler] Scheduled reminder for ${dayCode} at ${triggerDate.toISOString()}`);
+    if (!preferredScene) {
+      console.warn("[NotificationScheduler] No preferred scene provided, skipping scheduling");
+      return [];
     }
 
-    // 4. Persist new IDs and signature
-    await AsyncStorage.setItem(getStorageKey(userId), JSON.stringify(notificationIds));
-    await AsyncStorage.setItem(signatureKey, newSignature);
+    if (!userId) {
+      console.warn("[NotificationScheduler] No userId provided, skipping scheduling");
+      return [];
+    }
 
-    console.log(`[NotificationScheduler] Scheduled ${notificationIds.length} reminders for user ${userId}`);
-    return notificationIds;
-  } catch (error) {
-    console.error("[NotificationScheduler] Error scheduling reminders:", error);
-    // Cleanup on error
-    for (const id of notificationIds) {
-      try {
-        await Notifications.cancelScheduledNotificationAsync(id);
-      } catch (e) {
-        // Ignore cleanup errors
+    const hour = 21;
+    const minute = 30;
+    const message = "NYC is waking up. Check the live vibes or drop one if you're already out!";
+
+    // Check if settings changed — if not, skip re-scheduling to avoid churning
+    // the OS notification queue unnecessarily.
+    const newSignature = generateReminderSignature({ goingOutDays, preferredScene, hour, minute });
+    const signatureKey = getSignatureKey(userId);
+    try {
+      const existingSignature = await AsyncStorage.getItem(signatureKey);
+      if (existingSignature === newSignature) {
+        console.log("[NotificationScheduler] Reminder settings unchanged, skipping re-schedule");
+        const existingIdsJson = await AsyncStorage.getItem(getStorageKey(userId));
+        if (existingIdsJson) {
+          return JSON.parse(existingIdsJson);
+        }
+        return [];
       }
+    } catch (e) {
+      console.warn("[NotificationScheduler] Error checking signature, proceeding with full reschedule:", e);
     }
-    throw error;
+
+    // 1. Nuclear cancel — wipe every scheduled notification to prevent orphaned
+    //    duplicates from any previous broken scheduling run.
+    try {
+      await Notifications.cancelAllScheduledNotificationsAsync();
+      console.log("[NotificationScheduler] Canceled all scheduled notifications");
+    } catch (e) {
+      console.warn("[NotificationScheduler] Error canceling all notifications:", e);
+    }
+
+    // 2. Clear stored IDs + signature for this user so stale data can't linger.
+    await cancelExistingReminders(userId);
+
+    const notificationIds = [];
+
+    try {
+      for (const dayCode of goingOutDays.filter(Boolean)) {
+        const expoWeekday = DAY_CODE_TO_EXPO_WEEKDAY[dayCode];
+        if (!expoWeekday) {
+          console.warn(`[NotificationScheduler] Unknown day code "${dayCode}", skipping`);
+          continue;
+        }
+
+        // Use a REPEATING weekly Calendar trigger — fires every week on this
+        // weekday at the given time. This replaces the old one-shot { date }
+        // trigger which caused: (a) notifications stopping after one week,
+        // (b) duplicate stacking on repeated scheduling calls.
+        const notificationId = await Notifications.scheduleNotificationAsync({
+          content: {
+            title: "What's the move tonight? 👀",
+            body: message,
+            sound: true,
+            data: {
+              type: "weekly_reminder",
+              preferredScene,
+              dayCode,
+            },
+          },
+          trigger: {
+            weekday: expoWeekday,
+            hour,
+            minute,
+            repeats: true,
+          },
+        });
+
+        notificationIds.push(notificationId);
+        console.log(`[NotificationScheduler] Scheduled recurring reminder: ${dayCode} (weekday=${expoWeekday}) at ${hour}:${String(minute).padStart(2, "0")}`);
+      }
+
+      // 3. Persist new IDs and signature
+      await AsyncStorage.setItem(getStorageKey(userId), JSON.stringify(notificationIds));
+      await AsyncStorage.setItem(signatureKey, newSignature);
+
+      console.log(`[NotificationScheduler] Scheduled ${notificationIds.length} recurring reminders for user ${userId}`);
+      return notificationIds;
+    } catch (error) {
+      console.error("[NotificationScheduler] Error scheduling reminders:", error);
+      for (const id of notificationIds) {
+        try {
+          await Notifications.cancelScheduledNotificationAsync(id);
+        } catch (e) {
+          // Ignore cleanup errors
+        }
+      }
+      throw error;
+    }
+  } finally {
+    _schedulingInProgress = false;
   }
 }
 
