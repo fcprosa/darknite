@@ -37,9 +37,8 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  -- ⚠️  PASTE YOUR UUID BETWEEN THE SINGLE QUOTES BELOW
-  --     Find it in: Supabase Dashboard → Authentication → Users → your row → User UID
-  ADMIN_UUID           CONSTANT uuid := '00000000-0000-0000-0000-000000000000';
+  -- O teu UUID de Admin
+  ADMIN_UUID           CONSTANT uuid := 'b668ed54-5379-4ac7-b798-b9589a99442b';
 
   v_user_id            uuid;
   v_is_admin           boolean;
@@ -129,7 +128,6 @@ BEGIN
   LIMIT  1;
 
   IF v_existing_vibe_id IS NOT NULL THEN
-    -- UPDATE: COALESCE preserves existing values for skipped fields
     UPDATE vibes SET
       crowd             = COALESCE(p_crowd,             crowd),
       music             = COALESCE(p_music,             music),
@@ -143,7 +141,6 @@ BEGIN
     WHERE id = v_existing_vibe_id
     RETURNING * INTO v_result;
   ELSE
-    -- INSERT fresh vibe row
     INSERT INTO vibes (
       venue_id, user_id,
       crowd, music, line, cover,
@@ -160,6 +157,5 @@ BEGIN
 END;
 $$;
 
--- Grant execute to authenticated users only
 REVOKE ALL ON FUNCTION submit_venue_vibe FROM PUBLIC;
 GRANT  EXECUTE ON FUNCTION submit_venue_vibe TO authenticated;

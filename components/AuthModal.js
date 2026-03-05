@@ -17,6 +17,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as AppleAuthentication from "expo-apple-authentication";
 import { useAuth } from "../contexts/AuthContext";
 import { validateUsername, checkUsernameAvailability, suggestUsernameVariants } from "../utils/usernameHelpers";
+import { LegalContent } from "./LegalModal";
 
 // Password validation helper
 const validatePassword = (password) => {
@@ -44,6 +45,10 @@ export default function AuthModal({ visible, onClose, onGuestContinue }) {
   const [usernameSuggestions, setUsernameSuggestions] = useState([]);
   const [checkingUsername, setCheckingUsername] = useState(false);
   const [appleSignInAvailable, setAppleSignInAvailable] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [legalModalVisible, setLegalModalVisible] = useState(false);
+  const [legalModalType, setLegalModalType] = useState("terms");
+  const [authError, setAuthError] = useState(null);
 
   // Check if Apple Sign-In is available
   useEffect(() => {
@@ -64,6 +69,8 @@ export default function AuthModal({ visible, onClose, onGuestContinue }) {
       setUsernameError(null);
       setUsernameSuggestions([]);
       setLoading(false);
+      setTermsAccepted(false);
+      setAuthError(null);
     }
   }, [visible, activeTab]);
 
@@ -96,6 +103,7 @@ export default function AuthModal({ visible, onClose, onGuestContinue }) {
     setUsername(lowerText);
     setUsernameError(null);
     setUsernameSuggestions([]);
+    setAuthError(null);
     
     if (lowerText.length > 0) {
       const validation = validateUsername(lowerText);
@@ -136,6 +144,7 @@ export default function AuthModal({ visible, onClose, onGuestContinue }) {
 
   const handleSignIn = async () => {
     setError(null);
+    setAuthError(null);
     setLoading(true);
 
     if (!email || !email.includes("@")) {
@@ -154,7 +163,7 @@ export default function AuthModal({ visible, onClose, onGuestContinue }) {
       const { data, error: signInError } = await signIn(email, password);
       
       if (signInError) {
-        setError(signInError.message || "Sign in failed");
+        setAuthError("Invalid email or password. Please try again.");
         setLoading(false);
         return;
       }
@@ -169,6 +178,7 @@ export default function AuthModal({ visible, onClose, onGuestContinue }) {
 
   const handleSignUp = async () => {
     setError(null);
+    setAuthError(null);
     setLoading(true);
 
     if (!email || !email.includes("@")) {
@@ -212,13 +222,14 @@ export default function AuthModal({ visible, onClose, onGuestContinue }) {
       const { data, error: signUpError } = await signUp(email, password, username);
       
       if (signUpError) {
-        // Check if error is username-related
+        // Username conflict stays as a form-level error with suggestions
         if (signUpError.message && signUpError.message.toLowerCase().includes("username")) {
           setError("Username already taken");
           const suggestions = suggestUsernameVariants(username);
           setUsernameSuggestions(suggestions);
         } else {
-          setError(signUpError.message || "Sign up failed");
+          // All other API errors (email already registered, network, etc.) go near the button
+          setAuthError(signUpError.message || "Sign up failed. Please try again.");
         }
         setLoading(false);
         return;
@@ -264,15 +275,25 @@ export default function AuthModal({ visible, onClose, onGuestContinue }) {
     validatePassword(password).valid &&
     confirmPassword === password &&
     confirmPassword.length > 0 &&
-    !usernameError;
+    !usernameError &&
+    termsAccepted;
 
   return (
     <Modal
       visible={visible}
       animationType="slide"
       transparent={true}
-      onRequestClose={onClose}
+      onRequestClose={legalModalVisible ? () => setLegalModalVisible(false) : onClose}
     >
+      {/* Legal content swaps in-place inside the same Modal to avoid the iOS
+          double-modal bug (a second Modal presented over an existing one is
+          silently ignored by UIKit). */}
+      {legalModalVisible ? (
+        <LegalContent
+          type={legalModalType}
+          onClose={() => setLegalModalVisible(false)}
+        />
+      ) : (
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <View style={styles.authModalOverlay}>
           <KeyboardAvoidingView
@@ -332,7 +353,12 @@ export default function AuthModal({ visible, onClose, onGuestContinue }) {
                     </TouchableOpacity>
                   </View>
                 ) : (
-                  <ScrollView style={styles.authFormContainer} showsVerticalScrollIndicator={false}>
+                  <ScrollView
+                    style={styles.authFormContainer}
+                    contentContainerStyle={styles.authFormContentContainer}
+                    showsVerticalScrollIndicator={false}
+                    keyboardShouldPersistTaps="handled"
+                  >
                     {/* Error Message */}
                     {error && (
                       <View style={styles.authErrorContainer}>
@@ -348,7 +374,7 @@ export default function AuthModal({ visible, onClose, onGuestContinue }) {
                         placeholder="Enter your email"
                         placeholderTextColor="#6B7280"
                         value={email}
-                        onChangeText={setEmail}
+                        onChangeText={(v) => { setEmail(v); setAuthError(null); }}
                         keyboardType="email-address"
                         autoCapitalize="none"
                         autoCorrect={false}
@@ -408,7 +434,7 @@ export default function AuthModal({ visible, onClose, onGuestContinue }) {
                         placeholder="Enter your password"
                         placeholderTextColor="#6B7280"
                         value={password}
-                        onChangeText={setPassword}
+                        onChangeText={(v) => { setPassword(v); setAuthError(null); }}
                         secureTextEntry
                         editable={!loading}
                       />
@@ -434,6 +460,46 @@ export default function AuthModal({ visible, onClose, onGuestContinue }) {
                           <Text style={styles.authInputErrorText}>{confirmPasswordError}</Text>
                         )}
                       </View>
+                    )}
+
+                    {/* Terms & Privacy acceptance — Sign Up only.
+                        Checkbox and text are intentionally separate so the
+                        inline Text onPress links are not swallowed by a parent
+                        TouchableOpacity responder. */}
+                    {activeTab === "signup" && (
+                      <View style={styles.termsRow}>
+                        <TouchableOpacity
+                          onPress={() => setTermsAccepted((v) => !v)}
+                          activeOpacity={0.7}
+                          style={styles.termsCheckboxButton}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <View style={[styles.termsCheckbox, termsAccepted && styles.termsCheckboxChecked]}>
+                            {termsAccepted && <Ionicons name="checkmark" size={12} color="#FFFFFF" />}
+                          </View>
+                        </TouchableOpacity>
+                        <Text style={styles.termsText}>
+                          I agree to the{" "}
+                          <Text
+                            style={styles.termsLink}
+                            onPress={() => { setLegalModalType("terms"); setLegalModalVisible(true); }}
+                          >
+                            Terms of Service
+                          </Text>
+                          {" "}and{" "}
+                          <Text
+                            style={styles.termsLink}
+                            onPress={() => { setLegalModalType("privacy"); setLegalModalVisible(true); }}
+                          >
+                            Privacy Policy
+                          </Text>
+                        </Text>
+                      </View>
+                    )}
+
+                    {/* Inline auth error — shown near the button, not at the top */}
+                    {authError && (
+                      <Text style={styles.authErrorInline}>{authError}</Text>
                     )}
 
                     {/* Submit Button */}
@@ -481,6 +547,27 @@ export default function AuthModal({ visible, onClose, onGuestContinue }) {
                       />
                     )}
 
+                    {/* Legal disclosure for Apple Sign-In (covers new + returning users) */}
+                    {Platform.OS === "ios" && appleSignInAvailable && (
+                      <Text style={styles.appleTermsDisclosure}>
+                        By continuing with Apple, you agree to our{" "}
+                        <Text
+                          style={styles.termsLink}
+                          onPress={() => { setLegalModalType("terms"); setLegalModalVisible(true); }}
+                        >
+                          Terms of Service
+                        </Text>
+                        {" "}and{" "}
+                        <Text
+                          style={styles.termsLink}
+                          onPress={() => { setLegalModalType("privacy"); setLegalModalVisible(true); }}
+                        >
+                          Privacy Policy
+                        </Text>
+                        .
+                      </Text>
+                    )}
+
                     {/* Guest Option */}
                     <TouchableOpacity
                       style={styles.authGuestButton}
@@ -500,6 +587,7 @@ export default function AuthModal({ visible, onClose, onGuestContinue }) {
           </KeyboardAvoidingView>
         </View>
       </TouchableWithoutFeedback>
+      )}
     </Modal>
   );
 }
@@ -512,8 +600,10 @@ const styles = StyleSheet.create({
   },
   authModalContainer: {
     maxHeight: "90%",
+    flex: 1,
   },
   authModalContent: {
+    flex: 1,
     backgroundColor: "#0B0625",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
@@ -521,7 +611,6 @@ const styles = StyleSheet.create({
     borderColor: "rgba(168,85,247,0.3)",
     borderBottomWidth: 0,
     paddingTop: 8,
-    paddingBottom: 32,
   },
   authModalHeader: {
     flexDirection: "row",
@@ -568,7 +657,12 @@ const styles = StyleSheet.create({
     color: "#A855F7",
   },
   authFormContainer: {
+    flex: 1,
     paddingHorizontal: 20,
+  },
+  authFormContentContainer: {
+    flexGrow: 1,
+    paddingBottom: 40,
   },
   authEmailSentContainer: {
     alignItems: "center",
@@ -740,6 +834,57 @@ const styles = StyleSheet.create({
     width: "100%",
     height: 50,
     marginBottom: 4,
+  },
+  termsRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    marginBottom: 20,
+    marginTop: 4,
+  },
+  termsCheckboxButton: {
+    flexShrink: 0,
+  },
+  termsCheckbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 5,
+    borderWidth: 1.5,
+    borderColor: "rgba(168,85,247,0.5)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 1,
+    flexShrink: 0,
+  },
+  termsCheckboxChecked: {
+    backgroundColor: "#A855F7",
+    borderColor: "#A855F7",
+  },
+  termsText: {
+    flex: 1,
+    color: "#9CA3AF",
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  termsLink: {
+    color: "#A855F7",
+    fontWeight: "600",
+  },
+  appleTermsDisclosure: {
+    color: "#6B7280",
+    fontSize: 11,
+    textAlign: "center",
+    lineHeight: 16,
+    marginTop: 6,
+    marginBottom: 4,
+    paddingHorizontal: 8,
+  },
+  authErrorInline: {
+    color: "#EF4444",
+    fontSize: 13,
+    textAlign: "center",
+    marginBottom: 12,
+    paddingHorizontal: 4,
   },
 });
 

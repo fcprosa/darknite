@@ -171,7 +171,7 @@ export default function ProfileScreen({ navigation: navigationProp, isGuest = fa
 
   // Going-out days (for MY NIGHTS row)
   const goingOutDays = userProfile?.going_out_days || [];
-  const daysLabel = goingOutDays.length > 0 ? goingOutDays.map(d => d.charAt(0).toUpperCase() + d.slice(1, 3)).join(", ") : "Not set";
+  const daysLabel = goingOutDays.length > 0 ? goingOutDays.filter(Boolean).map(d => d.charAt(0).toUpperCase() + d.slice(1, 3)).join(", ") : "Not set";
 
   // Render activity tab content
   const renderActivityContent = () => {

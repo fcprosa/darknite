@@ -28,6 +28,7 @@ import CheckInModal from "./CheckInModal";
 import EmptyState, { EmptyStates } from "./EmptyState";
 import { Chip } from "../src/components/Chip";
 import { spacing, radius, fontSize, fontWeight, color } from "../src/theme/tokens";
+import { supabase } from "../utils/supabase";
 
 
 function getCrowdEmoji(crowd) {
@@ -69,6 +70,7 @@ export default function VenueDetailsLovable({ venue, onBack, onOpenSheet, refres
   const [latestLineWait, setLatestLineWait] = useState(null);
   const [userHasVibeTonight, setUserHasVibeTonight] = useState(false);
   const [hiddenVibeIds, setHiddenVibeIds] = useState(new Set());
+  const [blockedUserIds, setBlockedUserIds] = useState(new Set());
 
   const headerAnim = useRef(new Animated.Value(0)).current;
   const contentAnim = useRef(new Animated.Value(50)).current;
@@ -226,6 +228,21 @@ export default function VenueDetailsLovable({ venue, onBack, onOpenSheet, refres
     return () => clearInterval(interval);
   }, [venue?.id]);
 
+  // Load this user's block list from Supabase on mount so blocked-user
+  // vibes are filtered immediately, even across sessions.
+  useEffect(() => {
+    if (!user?.id) return;
+    (async () => {
+      const { data } = await supabase
+        .from("user_blocks")
+        .select("blocked_user_id")
+        .eq("blocker_id", user.id);
+      if (data?.length) {
+        setBlockedUserIds(new Set(data.map((b) => b.blocked_user_id)));
+      }
+    })();
+  }, [user?.id]);
+
   const handleCheckInSuccess = () => {
     setCheckInCount(prev => prev + 1);
     
@@ -240,36 +257,74 @@ export default function VenueDetailsLovable({ venue, onBack, onOpenSheet, refres
     }, 500);
   };
 
-  const handleVibeOptions = (vibeId) => {
+  // Step 1 — action sheet: Report or Block
+  const handleVibeOptions = (vibeId, vibeUserId) => {
+    const isOwnVibe = vibeUserId && vibeUserId === user?.id;
+
+    const buttons = isOwnVibe
+      ? [{ text: "Cancel", style: "cancel" }]
+      : [
+          { text: "Report Vibe", style: "destructive", onPress: () => handleReportVibe(vibeId) },
+          { text: "Block User",  style: "destructive", onPress: () => handleBlockUser(vibeId, vibeUserId) },
+          { text: "Cancel", style: "cancel" },
+        ];
+    Alert.alert("Vibe Options", null, buttons);
+  };
+
+  // Step 2 — reason picker for report (second Alert, stacks on iOS)
+  const handleReportVibe = (vibeId) => {
+    Alert.alert("Report Vibe", "What's wrong with this vibe?", [
+      { text: "Spam",             onPress: () => submitVibeReport(vibeId, "spam") },
+      { text: "Fake or inaccurate", onPress: () => submitVibeReport(vibeId, "fake_or_inaccurate") },
+      { text: "Inappropriate",   style: "destructive", onPress: () => submitVibeReport(vibeId, "inappropriate") },
+      { text: "Cancel",          style: "cancel" },
+    ]);
+  };
+
+  // Persist report to vibe_reports table; optimistically hide the vibe regardless
+  const submitVibeReport = async (vibeId, reason) => {
+    // Optimistic hide — user shouldn't see the vibe they reported
+    setHiddenVibeIds((prev) => new Set([...prev, vibeId]));
+
+    try {
+      if (user?.id) {
+        await supabase.from("vibe_reports").insert({
+          reporter_id:      user.id,
+          reported_vibe_id: vibeId,
+          reason,
+        });
+      }
+    } catch (_) {
+      // Silently absorb — duplicate reports hit the UNIQUE constraint which is fine.
+      // The user sees the confirmation either way; the vibe stays hidden.
+    }
+
     Alert.alert(
-      "Vibe Options",
-      null,
-      [
-        {
-          text: "Report Vibe",
-          style: "destructive",
-          onPress: () => {
-            setHiddenVibeIds((prev) => new Set([...prev, vibeId]));
-            Alert.alert(
-              "Thanks for reporting",
-              "Our team will review this within 24 hours."
-            );
-          },
-        },
-        {
-          text: "Block User",
-          style: "destructive",
-          onPress: () => {
-            setHiddenVibeIds((prev) => new Set([...prev, vibeId]));
-            Alert.alert(
-              "User blocked",
-              "You will no longer see vibes from this user."
-            );
-          },
-        },
-        { text: "Cancel", style: "cancel" },
-      ]
+      "Thanks for reporting",
+      "Our team will review this within 24 hours."
     );
+  };
+
+  // Persist block to user_blocks table; optimistically filter all their vibes
+  const handleBlockUser = async (vibeId, vibeUserId) => {
+    // Optimistic update — hide this vibe and all others from the same user
+    setHiddenVibeIds((prev) => new Set([...prev, vibeId]));
+    if (vibeUserId) {
+      setBlockedUserIds((prev) => new Set([...prev, vibeUserId]));
+    }
+
+    try {
+      if (user?.id && vibeUserId) {
+        await supabase.from("user_blocks").insert({
+          blocker_id:      user.id,
+          blocked_user_id: vibeUserId,
+        });
+      }
+    } catch (_) {
+      // Silently absorb — UNIQUE constraint fires if already blocked, which is fine.
+    }
+
+    Alert.alert("User blocked", "You will no longer see vibes from this user.");
   };
 
   const handleOpenMaps = () => {
@@ -585,7 +640,7 @@ export default function VenueDetailsLovable({ venue, onBack, onOpenSheet, refres
               />
             ) : (
               <View style={styles.timelineContainer}>
-                {(recentUpdates.filter((u) => !hiddenVibeIds.has(u.id)).slice(0, 4) || []).map((item, index, arr) => {
+                {(recentUpdates.filter((u) => !hiddenVibeIds.has(u.id) && !blockedUserIds.has(u.user_id)).slice(0, 4) || []).map((item, index, arr) => {
                   const isLast = index === Math.min(3, arr.length - 1);
                   const trend = item._type === 'vibe' ? computeTrendForVibe(item, recentUpdates) : null;
                   
@@ -624,7 +679,7 @@ export default function VenueDetailsLovable({ venue, onBack, onOpenSheet, refres
                     return (
                       <View key={`checkin-${item.id || index}`} style={styles.timelineRow}>
                         {/* Track: dot + vertical connector line */}
-                        <View style={styles.timelineTrack}>
+                        <View style={styles.timelineTrack} pointerEvents="none">
                           <View style={[styles.timelineDot, isNow && styles.timelineDotNow]} />
                           {!isLast && <View style={styles.timelineLine} />}
                         </View>
@@ -702,7 +757,7 @@ export default function VenueDetailsLovable({ venue, onBack, onOpenSheet, refres
                   return (
                     <View key={`vibe-${vibe.id || index}`} style={styles.timelineRow}>
                       {/* Track: dot + vertical connector line */}
-                      <View style={styles.timelineTrack}>
+                      <View style={styles.timelineTrack} pointerEvents="none">
                         <View style={[styles.timelineDot, isNow && styles.timelineDotNow]} />
                         {!isLast && <View style={styles.timelineLine} />}
                       </View>
@@ -723,7 +778,7 @@ export default function VenueDetailsLovable({ venue, onBack, onOpenSheet, refres
                       {/* Three-dots report/block button */}
                       <TouchableOpacity
                         style={styles.vibeMenuButton}
-                        onPress={() => handleVibeOptions(vibe.id)}
+                        onPress={() => handleVibeOptions(vibe.id, vibe.user_id)}
                         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                       >
                         <Ionicons name="ellipsis-horizontal" size={16} color="rgba(255,255,255,0.25)" />

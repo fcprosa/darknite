@@ -164,7 +164,7 @@ export function AuthProvider({ children }) {
 
       return { data, error: null };
     } catch (error) {
-      console.error("[Auth] Sign up error:", error);
+      console.warn("[Auth] Sign up error:", error.message ?? error);
       return { data: null, error };
     }
   };
@@ -192,7 +192,7 @@ export function AuthProvider({ children }) {
 
       return { data, error: null };
     } catch (error) {
-      console.error("[Auth] Sign in error:", error);
+      console.warn("[Auth] Sign in error:", error.message ?? error);
       return { data: null, error };
     }
   };

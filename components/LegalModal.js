@@ -136,11 +136,50 @@ If you are a California resident, you have additional rights under CCPA. Contact
 For EU residents, we comply with GDPR requirements. You have rights to access, rectification, erasure, and data portability.
 `;
 
-export default function LegalModal({ visible, type, onClose }) {
+// Exported without a Modal wrapper so it can be embedded inside an existing
+// Modal (e.g. AuthModal) without triggering iOS's silent double-modal failure.
+export function LegalContent({ type, onClose }) {
   const isTerms = type === "terms";
   const title = isTerms ? "Terms of Service" : "Privacy Policy";
   const content = isTerms ? TERMS_CONTENT : PRIVACY_CONTENT;
 
+  return (
+    <View style={styles.modalOverlay}>
+      <View style={styles.modalContent}>
+        {/* Header */}
+        <View style={styles.modalHeader}>
+          <Ionicons
+            name={isTerms ? "document-text" : "shield-checkmark"}
+            size={24}
+            color="#A855F7"
+          />
+          <Text style={styles.modalTitle}>{title}</Text>
+          <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+            <Ionicons name="close" size={24} color="#94A3B8" />
+          </TouchableOpacity>
+        </View>
+
+        {/* Content */}
+        <ScrollView
+          style={styles.contentScroll}
+          showsVerticalScrollIndicator={true}
+        >
+          <Text style={styles.contentText}>{content}</Text>
+        </ScrollView>
+
+        {/* Footer Button */}
+        <View style={styles.footer}>
+          <TouchableOpacity style={styles.closeButtonBottom} onPress={onClose}>
+            <Text style={styles.closeButtonText}>Close</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+// Standalone modal variant — used on screens that are not already inside a Modal.
+export default function LegalModal({ visible, type, onClose }) {
   return (
     <Modal
       visible={visible}
@@ -148,37 +187,7 @@ export default function LegalModal({ visible, type, onClose }) {
       transparent={true}
       onRequestClose={onClose}
     >
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalContent}>
-          {/* Header */}
-          <View style={styles.modalHeader}>
-            <Ionicons
-              name={isTerms ? "document-text" : "shield-checkmark"}
-              size={24}
-              color="#A855F7"
-            />
-            <Text style={styles.modalTitle}>{title}</Text>
-            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-              <Ionicons name="close" size={24} color="#94A3B8" />
-            </TouchableOpacity>
-          </View>
-
-          {/* Content */}
-          <ScrollView
-            style={styles.contentScroll}
-            showsVerticalScrollIndicator={true}
-          >
-            <Text style={styles.contentText}>{content}</Text>
-          </ScrollView>
-
-          {/* Footer Button */}
-          <View style={styles.footer}>
-            <TouchableOpacity style={styles.closeButtonBottom} onPress={onClose}>
-              <Text style={styles.closeButtonText}>Close</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
+      <LegalContent type={type} onClose={onClose} />
     </Modal>
   );
 }

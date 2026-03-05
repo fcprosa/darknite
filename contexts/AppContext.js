@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { AppState } from "react-native";
 import { getAllVenues } from "../services/venueService";
 import { getLatestVibesBatch, fetchVibeWithProfile } from "../services/vibeService";
 import { getLatestBarCrowdCheckIn, getLatestLineWait } from "../services/checkInService";
 import { getActiveMoveCounts } from "../services/moveService";
 import { getVenueKeySafe } from "../utils/venueHelpers";
 import { supabase } from "../utils/supabase";
+import * as Location from "expo-location";
 
 const AppContext = React.createContext(null);
 
@@ -28,6 +30,13 @@ export function AppProvider({ children }) {
 
   // Moves (user intent signals)
   const [moveCountsByVenueId, setMoveCountsByVenueId] = useState({});
+
+  // Location — used as a hard gate: venues are not fetched until location
+  // resolves (granted or denied). On iOS cold start this ensures the network
+  // radio is awake before we touch Supabase, eliminating the race condition
+  // that caused the "No venues found" blank-screen bug on physical devices.
+  const [locationReady, setLocationReady] = useState(false);
+  const [userLocation, setUserLocation] = useState(null);
 
   // Refs to prevent race conditions in refresh functions
   const isRefreshingVibesRef = useRef(false);
@@ -284,15 +293,89 @@ export function AppProvider({ children }) {
     };
   }, [handleRealtimeVibeInsert]);
 
+  // Resolve location once at startup. Sets locationReady=true regardless of
+  // outcome (denied / GPS error / timeout) so the venue fetch is never blocked
+  // indefinitely. The 8-second timeout is a safety net for edge cases where
+  // getCurrentPositionAsync hangs (e.g. Airplane mode, GPS off).
   useEffect(() => {
+    let mounted = true;
+    const LOCATION_TIMEOUT_MS = 8000;
+
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (!mounted) return;
+
+        if (status === "granted") {
+          const locationPromise = Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced,
+          });
+          const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("location_timeout")), LOCATION_TIMEOUT_MS)
+          );
+
+          let loc = null;
+          try {
+            loc = await Promise.race([locationPromise, timeoutPromise]);
+          } catch {
+            // GPS error or 8s timeout — proceed without coordinates
+          }
+
+          if (!mounted) return;
+          if (loc) setUserLocation(loc);
+        }
+      } catch {
+        // Permission API failed — proceed without location
+      }
+
+      if (mounted) setLocationReady(true);
+    })();
+
+    return () => { mounted = false; };
+  }, []);
+
+  useEffect(() => {
+    // HARD BLOCK: do not touch Supabase until location has resolved.
+    // locationReady flips true once the Location API settles (granted/denied/
+    // timeout), which on iOS guarantees the network radio is awake.
+    if (!locationReady) return;
+
+    let mounted = true;
+    // Tracks the sorted venue-id fingerprint of the last successful load.
+    // Prevents unnecessary state churn when the venue list hasn't changed
+    // (e.g. repeated foreground events returning the same DB rows).
+    let lastVenueIds = "";
+
     async function loadVenues() {
+      if (!mounted) return;
       setLoadingVenues(true);
       const v = await getAllVenues();
-      setVenues(v);
+      if (!mounted) return;
+
+      // Compare by sorted IDs so ordering differences don't trigger a reload.
+      const newIds = v.map((x) => x.id).sort().join(",");
+      if (newIds !== lastVenueIds) {
+        lastVenueIds = newIds;
+        // Reset so the downstream effect re-fetches vibes for the new venue set.
+        setLatestVibesLoaded(false);
+        setVenues(v);
+      }
       setLoadingVenues(false);
     }
+
+    // Initial load (fires immediately once locationReady becomes true)
     loadVenues();
-  }, []);
+
+    // Re-fetch whenever the app returns to the foreground.
+    const sub = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active") loadVenues();
+    });
+
+    return () => {
+      mounted = false;
+      sub.remove();
+    };
+  }, [locationReady]);
 
   // Refresh vibes, check-ins, and moves after venues load
   useEffect(() => {
@@ -395,6 +478,8 @@ export function AppProvider({ children }) {
         moveCountsByVenueId,
         refreshMoveCounts,
         incrementMoveCount,
+        locationReady,
+        userLocation,
       }}
     >
       {children}

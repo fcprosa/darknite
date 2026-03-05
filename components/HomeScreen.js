@@ -8,6 +8,7 @@ import {
   Pressable,
   Alert,
   RefreshControl,
+  ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -27,7 +28,6 @@ import VenuePickerSheet from "./VenuePickerSheet";
 import SetMoveScreen from "./SetMoveScreen";
 import IconButton from "./IconButton";
 import * as Haptics from "expo-haptics";
-import * as Location from "expo-location";
 import { haversineKm } from "../utils/feedRanker";
 
 // Constants for floating pill button
@@ -38,13 +38,12 @@ const PILL_PADDING_HORIZONTAL = 20; // Horizontal padding for pill
 
 function HomeScreen({ navigation, tabNavigation, venues, onOpenVenue, onOpenSheet, refreshKey, selectedVenue, setSelectedVenue }) {
   const { setShowAuthModal, isAuthenticated } = useAuth();
-  const { latestVibesByVenueId, recentVibesByVenueId, latestLineWaitByVenueId, latestBarCrowdByVenueId, moveCountsByVenueId, refreshLatestVibes, refreshLatestCheckIns, refreshMoveCounts } = useAppContext();
+  const { latestVibesByVenueId, recentVibesByVenueId, latestLineWaitByVenueId, latestBarCrowdByVenueId, moveCountsByVenueId, refreshLatestVibes, refreshLatestCheckIns, refreshMoveCounts, locationReady, userLocation } = useAppContext();
   const isLoggedIn = isAuthenticated;
   const insets = useSafeAreaInsets();
   // ─── FAB Mode: Set Move (pregame) vs I'm Here (night active) ───
   // 9pm–5am = "I'm Here" (night is active, users are at venues)
   // 5am–9pm = "Set Move" (pregame, users are planning)
-  const [userLocation, setUserLocation] = useState(null);
   const [fabMode, setFabMode] = useState(() => {
     const hour = new Date().getHours();
     return (hour >= 21 || hour < 5) ? "imHere" : "setMove";
@@ -78,22 +77,6 @@ function HomeScreen({ navigation, tabNavigation, venues, onOpenVenue, onOpenShee
   // - Extra breathing room
   const totalBottomPadding = FLOATING_PILL_HEIGHT + PILL_BOTTOM_OFFSET + TAB_BAR_HEIGHT + insets.bottom + 70;
 
-  // Request location permission once on mount — non-blocking, non-fatal
-  useEffect(() => {
-    (async () => {
-      try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== "granted") return;
-        const loc = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
-        setUserLocation(loc);
-      } catch (e) {
-        // Location unavailable — feed still works, just no distance sorting
-      }
-    })();
-  }, []);
-
   // Update FAB mode every minute (handles the 9pm transition while app is open)
   useEffect(() => {
     const interval = setInterval(() => {
@@ -110,7 +93,8 @@ function HomeScreen({ navigation, tabNavigation, venues, onOpenVenue, onOpenShee
       const vibeCount = Object.keys(latestVibesByVenueId || {}).length;
       console.log(`[Feed] Re-computing enrichedVenues: ${venues.length} venues, ${vibeCount} with vibes`);
     }
-    const baseVenues = isLoggedIn ? venues : venues.slice(0, CONSTANTS.PREVIEW_VENUE_LIMIT);
+    const safeVenues = venues ?? [];
+    const baseVenues = isLoggedIn ? safeVenues : safeVenues.slice(0, CONSTANTS.PREVIEW_VENUE_LIMIT);
     const now = new Date();
     const uLat = userLocation?.coords?.latitude;
     const uLng = userLocation?.coords?.longitude;
@@ -250,6 +234,18 @@ function HomeScreen({ navigation, tabNavigation, venues, onOpenVenue, onOpenShee
       setShowSetMove(true);
     }
   };
+
+  // Hard block: render a full-screen loader until AppContext has resolved
+  // location (and therefore the iOS network radio is awake). This prevents
+  // getAllVenues() from firing too early on physical-device cold starts.
+  if (!locationReady) {
+    return (
+      <View style={styles.locatingContainer}>
+        <ActivityIndicator size="large" color="#A855F7" />
+        <Text style={styles.locatingText}>Finding your location…</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={{ flex: 1 }}>
@@ -525,6 +521,19 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "700",
     letterSpacing: 0.2,
+  },
+  locatingContainer: {
+    flex: 1,
+    backgroundColor: "#050013",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  locatingText: {
+    marginTop: 16,
+    color: "#9CA3AF",
+    fontSize: 15,
+    fontWeight: "500",
+    fontFamily: "Inter_500Medium",
   },
 });
 
