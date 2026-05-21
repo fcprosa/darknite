@@ -87,9 +87,17 @@ const AGE_OPTIONS = [
 export default function PostVibeScreen({ venue, navigation: navigationProp, onBack, onSuccess, route }) {
   // ── Extract venue info from route params or props ──
   const params = route?.params || {};
-  const venueId = venue?.id || params.venueId || params.venue_id || params.id;
-  const venueName = venue?.name || params.venueName || params.venue_name || params.name || "this spot";
-  const venueType = (venue?.venue_type || params.venueType || params.venue_type || "bar").toLowerCase();
+  const placeId =
+    venue?.place_id ||
+    venue?.id ||
+    params.placeId ||
+    params.place_id ||
+    params.id;
+  const venueName =
+    venue?.name || params.placeName || params.place_name || params.name || "this spot";
+  const venueType = (
+    venue?.venue_type || params.venueType || params.venue_type || "bar"
+  ).toLowerCase();
   const isClub = venueType === "club";
 
   // ── Use navigation prop or hook ──
@@ -97,7 +105,7 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
 
   // ── Auth & context ──
   const { user } = useAuth();
-  const { latestVibesByVenueId, upsertLatestVibe } = useAppContext();
+  const { vibesByPlaceId, upsertVibeForPlace } = useAppContext();
   const insets = useSafeAreaInsets();
 
   // ── Step state (1-4) ──
@@ -231,7 +239,7 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
       return;
     }
 
-    if (!user?.id || !venueId) {
+    if (!user?.id || !placeId) {
       if (!user?.id) {
         Alert.alert("Sign in required", "Please sign in to post a vibe.");
       }
@@ -243,14 +251,14 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
     setError(null);
 
     // Capture previous vibe BEFORE submitting (for confirmation UI)
-    const prevVibe = latestVibesByVenueId?.[venueId] || null;
+    const prevVibe = vibesByPlaceId?.[placeId] || null;
 
     try {
       // Map cover UI label to DB value for clubs
       const dbCover = cover ? mapCoverPriceToDB(cover) : null;
 
       const vibeData = {
-        venue_id: venueId,
+        venue_id: placeId,
         user_id: user.id,
         crowd: crowd,
         music: music || null,
@@ -277,8 +285,8 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
       }
 
       // Update feed cache
-      if (result?.data && upsertLatestVibe) {
-        upsertLatestVibe(result.data);
+      if (result?.data && upsertVibeForPlace) {
+        upsertVibeForPlace({ ...result.data, place_id: placeId });
       }
 
       // Save previous vibe for confirmation UI
@@ -317,7 +325,7 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
       isSubmittingRef.current = false;
       setSubmitting(false);
     }
-  }, [crowd, music, line, cover, drinksTier, crowdVibe, ageRange, venueId, user, navigation, goToStep, upsertLatestVibe, onBack, onSuccess, latestVibesByVenueId, rateLimitInfo, showRateLimitToast]);
+  }, [crowd, music, line, cover, drinksTier, crowdVibe, ageRange, placeId, user, navigation, goToStep, upsertVibeForPlace, onBack, onSuccess, vibesByPlaceId, rateLimitInfo, showRateLimitToast]);
 
   // ════════════════════════════════════════════════════════════
   // STEP 1: CROWD (mandatory, both types)
