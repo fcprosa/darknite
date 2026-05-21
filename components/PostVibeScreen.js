@@ -18,11 +18,19 @@ import {
   Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../contexts/AuthContext";
 import { useAppContext } from "../contexts/AppContext";
 import { createVibe } from "../services/vibeService";
 import { mapCoverPriceToDB } from "../utils/priceMapping";
+import XPToast from "./XPToast";
+import { useGamification } from "../src/hooks/useGamification";
+import {
+  getLocalActivityDate,
+  parseCityFromAddress,
+} from "../constants/gamification";
+import { COLORS } from "../constants";
 
 // ════════════════════════════════════════════════════════════
 // OPTION CONFIGS — DO NOT ADD MORE STEPS OR OPTIONS
@@ -87,9 +95,17 @@ const AGE_OPTIONS = [
 export default function PostVibeScreen({ venue, navigation: navigationProp, onBack, onSuccess, route }) {
   // ── Extract venue info from route params or props ──
   const params = route?.params || {};
-  const venueId = venue?.id || params.venueId || params.venue_id || params.id;
-  const venueName = venue?.name || params.venueName || params.venue_name || params.name || "this spot";
-  const venueType = (venue?.venue_type || params.venueType || params.venue_type || "bar").toLowerCase();
+  const placeId =
+    venue?.place_id ||
+    venue?.id ||
+    params.placeId ||
+    params.place_id ||
+    params.id;
+  const venueName =
+    venue?.name || params.placeName || params.place_name || params.name || "this spot";
+  const venueType = (
+    venue?.venue_type || params.venueType || params.venue_type || "bar"
+  ).toLowerCase();
   const isClub = venueType === "club";
 
   // ── Use navigation prop or hook ──
@@ -97,8 +113,12 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
 
   // ── Auth & context ──
   const { user } = useAuth();
-  const { latestVibesByVenueId, upsertLatestVibe } = useAppContext();
+  const { vibesByPlaceId, upsertVibeForPlace } = useAppContext();
+  const { awardXP, previewXP } = useGamification();
   const insets = useSafeAreaInsets();
+
+  const [xpToast, setXpToast] = useState({ visible: false, lines: [] });
+  const [xpPreview, setXpPreview] = useState(0);
 
   // ── Step state (1-4) ──
   const [step, setStep] = useState(1);
@@ -124,6 +144,20 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
   // Set when the RPC returns a rate limit error; kept for the lifetime of this
   // screen instance so the button stays disabled without further server calls.
   const [rateLimitInfo, setRateLimitInfo] = useState(null); // { type: 'venue'|'global', minutesRemaining: number|null }
+
+  const addressHint =
+    venue?.vicinity ||
+    venue?.formatted_address ||
+    params.vicinity ||
+    params.formatted_address ||
+    null;
+
+  useEffect(() => {
+    if (!user?.id || !placeId || step < 3) return;
+    previewXP(user.id, "submit_vibe", { placeId, address: addressHint }).then(
+      (r) => setXpPreview(r?.totalAwarded ?? 0)
+    );
+  }, [user?.id, placeId, step, addressHint, previewXP]);
   const [toastVisible, setToastVisible] = useState(false);
   const toastFade = useRef(new Animated.Value(0)).current;
   const toastTimerRef = useRef(null);
@@ -231,7 +265,7 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
       return;
     }
 
-    if (!user?.id || !venueId) {
+    if (!user?.id || !placeId) {
       if (!user?.id) {
         Alert.alert("Sign in required", "Please sign in to post a vibe.");
       }
@@ -243,14 +277,14 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
     setError(null);
 
     // Capture previous vibe BEFORE submitting (for confirmation UI)
-    const prevVibe = latestVibesByVenueId?.[venueId] || null;
+    const prevVibe = vibesByPlaceId?.[placeId] || null;
 
     try {
       // Map cover UI label to DB value for clubs
       const dbCover = cover ? mapCoverPriceToDB(cover) : null;
 
       const vibeData = {
-        venue_id: venueId,
+        venue_id: placeId,
         user_id: user.id,
         crowd: crowd,
         music: music || null,
@@ -277,9 +311,22 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
       }
 
       // Update feed cache
-      if (result?.data && upsertLatestVibe) {
-        upsertLatestVibe(result.data);
+      if (result?.data && upsertVibeForPlace) {
+        upsertVibeForPlace({ ...result.data, place_id: placeId });
       }
+
+      const xpResult = await awardXP(user.id, "submit_vibe", {
+        placeId,
+        city: parseCityFromAddress(addressHint),
+        address: addressHint,
+        activityDate: getLocalActivityDate(),
+        hasPhoto: false,
+      });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (xpResult?.newBadges?.length > 0) {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      }
+      setXpToast({ visible: true, lines: xpResult?.lines || [] });
 
       // Save previous vibe for confirmation UI
       setPreviousVibeForConfirm(prevVibe);
@@ -317,7 +364,7 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
       isSubmittingRef.current = false;
       setSubmitting(false);
     }
-  }, [crowd, music, line, cover, drinksTier, crowdVibe, ageRange, venueId, user, navigation, goToStep, upsertLatestVibe, onBack, onSuccess, latestVibesByVenueId, rateLimitInfo, showRateLimitToast]);
+  }, [crowd, music, line, cover, drinksTier, crowdVibe, ageRange, placeId, user, navigation, goToStep, upsertVibeForPlace, onBack, onSuccess, vibesByPlaceId, rateLimitInfo, showRateLimitToast]);
 
   // ════════════════════════════════════════════════════════════
   // STEP 1: CROWD (mandatory, both types)
@@ -494,7 +541,13 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
           disabled={submitting || !!rateLimitInfo}
         >
           <Text style={s.doneBtnText}>
-            {submitting ? "Posting..." : rateLimitInfo ? "Cooldown Active" : "Done ✓"}
+            {submitting
+              ? "Posting..."
+              : rateLimitInfo
+              ? "Cooldown Active"
+              : xpPreview > 0
+              ? `Done · +${xpPreview} XP`
+              : "Done ✓"}
           </Text>
         </TouchableOpacity>
       </View>
@@ -555,7 +608,7 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
             onPress={handleBack}
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
           >
-            <Ionicons name={step > 1 ? "arrow-back" : "close"} size={24} color="#9CA3AF" />
+            <Ionicons name={step > 1 ? "arrow-back" : "close"} size={24} color={COLORS.textSecondary} />
               </TouchableOpacity>
 
           {/* Progress: 3 dots */}
@@ -576,7 +629,7 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
             onPress={handleClose}
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
           >
-            <Ionicons name="close" size={24} color="#9CA3AF" />
+            <Ionicons name="close" size={24} color={COLORS.textSecondary} />
               </TouchableOpacity>
             </View>
           )}
@@ -588,6 +641,12 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
         {step === 3 && renderStep3()}
         {step === 4 && renderStep4()}
       </Animated.View>
+
+      <XPToast
+        visible={xpToast.visible}
+        lines={xpToast.lines}
+        onDismiss={() => setXpToast({ visible: false, lines: [] })}
+      />
 
       {/* RATE-LIMIT TOAST */}
       {toastVisible && rateLimitInfo && (
@@ -619,7 +678,7 @@ export default function PostVibeScreen({ venue, navigation: navigationProp, onBa
 const s = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0A0614",
+    backgroundColor: COLORS.background,
   },
   header: {
     flexDirection: "row",
@@ -641,7 +700,7 @@ const s = StyleSheet.create({
   dotCurrent: {
     width: 24,
     borderRadius: 4,
-    backgroundColor: "#A855F7",
+    backgroundColor: COLORS.primary,
   },
 
   // ── Body ──
@@ -653,12 +712,12 @@ const s = StyleSheet.create({
   question: {
     fontSize: 28,
     fontWeight: "800",
-    color: "#F5F3FF",
+    color: COLORS.textPrimary,
     letterSpacing: -0.5,
   },
   subtitle: {
     fontSize: 15,
-    color: "#9CA3AF",
+    color: COLORS.textSecondary,
     fontWeight: "500",
     marginTop: 4,
     marginBottom: 24,
@@ -675,16 +734,17 @@ const s = StyleSheet.create({
     borderColor: "rgba(168,85,247,0.2)",
     paddingVertical: 16,
     paddingHorizontal: 16,
+    minHeight: 44,
     gap: 12,
   },
   optionRowActive: {
     backgroundColor: "rgba(168,85,247,0.2)",
-    borderColor: "#A855F7",
+    borderColor: COLORS.primary,
   },
   optionEmoji: { fontSize: 24, width: 32, textAlign: "center" },
-  optionLabel: { fontSize: 17, fontWeight: "700", color: "#E5E7EB" },
-  optionLabelActive: { color: "#F5F3FF" },
-  optionSub: { fontSize: 12, color: "#6B7280", fontWeight: "500" },
+  optionLabel: { fontSize: 17, fontWeight: "700", color: COLORS.textSecondary },
+  optionLabelActive: { color: COLORS.textPrimary },
+  optionSub: { fontSize: 12, color: COLORS.textMuted, fontWeight: "500" },
 
   // ── Music chips (Step 2 bar) ──
   chipGrid: {
@@ -703,16 +763,16 @@ const s = StyleSheet.create({
   },
   musicChipActive: {
     backgroundColor: "rgba(168,85,247,0.25)",
-    borderColor: "#A855F7",
+    borderColor: COLORS.primary,
   },
-  musicChipText: { fontSize: 15, fontWeight: "600", color: "#D1D5DB" },
-  musicChipTextActive: { color: "#F3E8FF", fontWeight: "700" },
+  musicChipText: { fontSize: 15, fontWeight: "600", color: COLORS.textSecondary },
+  musicChipTextActive: { color: COLORS.primaryGlow, fontWeight: "700" },
 
   // ── Extras (Step 3) ──
   sectionLabel: {
     fontSize: 15,
     fontWeight: "700",
-    color: "#D1D5DB",
+    color: COLORS.textSecondary,
     marginTop: 18,
     marginBottom: 8,
   },
@@ -726,10 +786,10 @@ const s = StyleSheet.create({
   },
   extraChipActive: {
     backgroundColor: "rgba(168,85,247,0.2)",
-    borderColor: "#A855F7",
+    borderColor: COLORS.primary,
   },
-  extraChipText: { fontSize: 13, fontWeight: "600", color: "#9CA3AF" },
-  extraChipTextActive: { color: "#E9D5FF" },
+  extraChipText: { fontSize: 13, fontWeight: "600", color: COLORS.textSecondary },
+  extraChipTextActive: { color: COLORS.primaryGlow },
 
   // ── Action buttons ──
   actions: {
@@ -742,20 +802,24 @@ const s = StyleSheet.create({
     backgroundColor: "rgba(148,163,184,0.1)",
     borderRadius: 14,
     paddingVertical: 16,
+    minHeight: 44,
     alignItems: "center",
+    justifyContent: "center",
     borderWidth: 1,
     borderColor: "rgba(148,163,184,0.2)",
   },
-  skipBtnText: { fontSize: 16, fontWeight: "600", color: "#9CA3AF" },
+  skipBtnText: { fontSize: 16, fontWeight: "600", color: COLORS.textSecondary },
   doneBtn: {
     flex: 2,
-    backgroundColor: "#A855F7",
+    backgroundColor: COLORS.primary,
     borderRadius: 14,
     paddingVertical: 16,
+    minHeight: 44,
     alignItems: "center",
+    justifyContent: "center",
   },
-  doneBtnText: { fontSize: 16, fontWeight: "700", color: "#FFF" },
-  error: { color: "#EF4444", fontSize: 13, textAlign: "center", marginTop: 12 },
+  doneBtnText: { fontSize: 16, fontWeight: "700", color: COLORS.textPrimary },
+  error: { color: COLORS.danger, fontSize: 13, textAlign: "center", marginTop: 12 },
 
   // ── Confirmation ──
   confirmWrap: {
@@ -767,12 +831,12 @@ const s = StyleSheet.create({
   confirmTitle: {
     fontSize: 28,
     fontWeight: "800",
-    color: "#F5F3FF",
+    color: COLORS.textPrimary,
     marginTop: 16,
   },
   confirmSub: {
     fontSize: 15,
-    color: "#9CA3AF",
+    color: COLORS.textSecondary,
     marginTop: 8,
     fontWeight: "500",
   },
@@ -783,13 +847,13 @@ const s = StyleSheet.create({
     bottom: 36,
     left: 20,
     right: 20,
-    backgroundColor: "#1A0D2E",
+    backgroundColor: COLORS.surface,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "rgba(168,85,247,0.4)",
+    borderColor: COLORS.border,
     paddingVertical: 16,
     paddingHorizontal: 18,
-    shadowColor: "#A855F7",
+    shadowColor: COLORS.primary,
     shadowOpacity: 0.25,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 },
@@ -798,13 +862,13 @@ const s = StyleSheet.create({
   toastTitle: {
     fontSize: 15,
     fontWeight: "800",
-    color: "#E9D5FF",
+    color: COLORS.primaryGlow,
     marginBottom: 4,
   },
   toastBody: {
     fontSize: 13,
     fontWeight: "500",
-    color: "#9CA3AF",
+    color: COLORS.textSecondary,
     lineHeight: 18,
   },
 });

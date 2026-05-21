@@ -12,7 +12,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../contexts/AuthContext";
 import { useAppContext } from "../contexts/AppContext";
-import { color as themeColor } from "../src/theme/tokens";
+import { COLORS as themeColor } from "../constants";
 
 const { width: W } = Dimensions.get("window");
 
@@ -91,7 +91,7 @@ function LandingScreen({ onDiscover }) {
 
       {/* Background */}
       <LinearGradient
-        colors={["#04000F", "#0A0018", "#050010"]}
+        colors={[themeColor.background, themeColor.surface, themeColor.background]}
         start={{ x: 0.2, y: 0 }}
         end={{ x: 0.8, y: 1 }}
         style={StyleSheet.absoluteFill}
@@ -172,7 +172,7 @@ function LandingScreen({ onDiscover }) {
             style={styles.primaryBtnWrap}
           >
             <LinearGradient
-              colors={[themeColor.accent, "#A855F7"]}
+              colors={[themeColor.accent, themeColor.primary]}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               style={styles.primaryBtn}
@@ -197,12 +197,12 @@ function LandingScreen({ onDiscover }) {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: "#04000F",
+    backgroundColor: themeColor.background,
   },
   star: {
     position: "absolute",
     borderRadius: 99,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: themeColor.textPrimary,
   },
   content: {
     flex: 1,
@@ -217,7 +217,7 @@ const styles = StyleSheet.create({
   logo: {
     fontSize: 52,
     fontWeight: "900",
-    color: "#FFFFFF",
+    color: themeColor.textPrimary,
     letterSpacing: -1.5,
   },
   tagline: {
@@ -241,7 +241,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "rgba(255,255,255,0.06)",
     borderWidth: 1,
-    borderColor: themeColor.borderDefault,
+    borderColor: themeColor.border,
     position: "relative",
     overflow: "hidden",
   },
@@ -254,7 +254,7 @@ const styles = StyleSheet.create({
     backgroundColor: themeColor.accent,
   },
   segmentItem: {
-    height: 40,
+    height: 44,
     borderRadius: 9,
     alignItems: "center",
     justifyContent: "center",
@@ -262,10 +262,10 @@ const styles = StyleSheet.create({
   segmentText: {
     fontSize: 14,
     fontWeight: "700",
-    color: themeColor.textTertiary,
+    color: themeColor.textMuted,
   },
   segmentTextActive: {
-    color: "#FFFFFF",
+    color: themeColor.textPrimary,
   },
 
   // ─── Feature Copy ───
@@ -277,7 +277,7 @@ const styles = StyleSheet.create({
   featureHeadline: {
     fontSize: 24,
     fontWeight: "800",
-    color: "#FFFFFF",
+    color: themeColor.textPrimary,
     textAlign: "center",
     letterSpacing: -0.5,
     lineHeight: 30,
@@ -309,12 +309,13 @@ const styles = StyleSheet.create({
   },
   primaryBtn: {
     paddingVertical: 18,
+    minHeight: 44,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 14,
   },
   primaryText: {
-    color: "#FFFFFF",
+    color: themeColor.textPrimary,
     fontSize: 17,
     fontWeight: "800",
     letterSpacing: 0.3,
@@ -326,7 +327,7 @@ const styles = StyleSheet.create({
   guestText: {
     fontSize: 15,
     fontWeight: "600",
-    color: themeColor.textTertiary,
+    color: themeColor.textMuted,
   },
 });
 

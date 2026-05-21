@@ -18,6 +18,7 @@ import ChangePasswordModal from "./ChangePasswordModal";
 import LegalModal from "./LegalModal";
 import IconButton from "./IconButton";
 import { resetOnboarding } from "./OnboardingScreen";
+import { COLORS } from "../constants";
 
 // Helper: Get initials from username (2 letters)
 const getInitials = (name) => {
@@ -178,7 +179,7 @@ export default function SettingsScreen({ navigation }) {
         {/* Header */}
         <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
           <IconButton onPress={handleBack}>
-            <Ionicons name="arrow-back" size={24} color="#A855F7" />
+            <Ionicons name="arrow-back" size={24} color={COLORS.primary} />
           </IconButton>
           <Text style={styles.headerTitle}>Settings</Text>
           <View style={{ width: 44 }} />
@@ -192,7 +193,7 @@ export default function SettingsScreen({ navigation }) {
             </View>
             <View style={styles.userInfoText}>
               {loadingProfile ? (
-                <ActivityIndicator size="small" color="#A855F7" />
+                <ActivityIndicator size="small" color={COLORS.primary} />
               ) : (
                 <>
                   <Text style={styles.userInfoName}>@{userName}</Text>
@@ -214,10 +215,10 @@ export default function SettingsScreen({ navigation }) {
               disabled={loading}
             >
               <View style={styles.actionRowIcon}>
-                <Ionicons name="lock-closed-outline" size={20} color="#A855F7" />
+                <Ionicons name="lock-closed-outline" size={20} color={COLORS.primary} />
               </View>
               <Text style={styles.actionRowText}>Change Password</Text>
-              <Ionicons name="chevron-forward" size={20} color="#64748B" />
+              <Ionicons name="chevron-forward" size={20} color={COLORS.textMuted} />
             </TouchableOpacity>
           </View>
         )}
@@ -231,10 +232,10 @@ export default function SettingsScreen({ navigation }) {
             disabled={loading}
           >
             <View style={styles.actionRowIcon}>
-              <Ionicons name="calendar-outline" size={20} color="#A855F7" />
+              <Ionicons name="calendar-outline" size={20} color={COLORS.primary} />
             </View>
             <Text style={styles.actionRowText}>Going-Out Days</Text>
-            <Ionicons name="chevron-forward" size={20} color="#64748B" />
+            <Ionicons name="chevron-forward" size={20} color={COLORS.textMuted} />
           </TouchableOpacity>
           
           <TouchableOpacity
@@ -243,10 +244,10 @@ export default function SettingsScreen({ navigation }) {
             disabled={loading}
           >
             <View style={styles.actionRowIcon}>
-              <Ionicons name="notifications-outline" size={20} color="#A855F7" />
+              <Ionicons name="notifications-outline" size={20} color={COLORS.primary} />
             </View>
             <Text style={styles.actionRowText}>Notifications</Text>
-            <Ionicons name="chevron-forward" size={20} color="#64748B" />
+            <Ionicons name="chevron-forward" size={20} color={COLORS.textMuted} />
           </TouchableOpacity>
         </View>
 
@@ -260,10 +261,10 @@ export default function SettingsScreen({ navigation }) {
             disabled={loading}
           >
             <View style={styles.actionRowIcon}>
-              <Ionicons name="mail-outline" size={20} color="#94A3B8" />
+              <Ionicons name="mail-outline" size={20} color={COLORS.textSecondary} />
             </View>
             <Text style={styles.actionRowText}>Contact Support</Text>
-            <Ionicons name="chevron-forward" size={20} color="#64748B" />
+            <Ionicons name="chevron-forward" size={20} color={COLORS.textMuted} />
           </TouchableOpacity>
           
           <TouchableOpacity
@@ -272,10 +273,10 @@ export default function SettingsScreen({ navigation }) {
             disabled={loading}
           >
             <View style={styles.actionRowIcon}>
-              <Ionicons name="document-text-outline" size={20} color="#94A3B8" />
+              <Ionicons name="document-text-outline" size={20} color={COLORS.textSecondary} />
             </View>
             <Text style={styles.actionRowText}>Terms of Service</Text>
-            <Ionicons name="chevron-forward" size={20} color="#64748B" />
+            <Ionicons name="chevron-forward" size={20} color={COLORS.textMuted} />
           </TouchableOpacity>
           
           <TouchableOpacity
@@ -284,10 +285,10 @@ export default function SettingsScreen({ navigation }) {
             disabled={loading}
           >
             <View style={styles.actionRowIcon}>
-              <Ionicons name="shield-checkmark-outline" size={20} color="#94A3B8" />
+              <Ionicons name="shield-checkmark-outline" size={20} color={COLORS.textSecondary} />
             </View>
             <Text style={styles.actionRowText}>Privacy Policy</Text>
-            <Ionicons name="chevron-forward" size={20} color="#64748B" />
+            <Ionicons name="chevron-forward" size={20} color={COLORS.textMuted} />
           </TouchableOpacity>
         </View>
 
@@ -302,9 +303,9 @@ export default function SettingsScreen({ navigation }) {
           >
             <View style={styles.actionRowIcon}>
               {loading ? (
-                <ActivityIndicator size="small" color="#EF4444" />
+                <ActivityIndicator size="small" color={COLORS.danger} />
               ) : (
-                <Ionicons name="log-out-outline" size={20} color="#EF4444" />
+                <Ionicons name="log-out-outline" size={20} color={COLORS.danger} />
               )}
             </View>
             <Text style={styles.actionRowTextDanger}>
@@ -319,9 +320,9 @@ export default function SettingsScreen({ navigation }) {
           >
             <View style={styles.actionRowIcon}>
               {loading ? (
-                <ActivityIndicator size="small" color="#EF4444" />
+                <ActivityIndicator size="small" color={COLORS.danger} />
               ) : (
-                <Ionicons name="trash-outline" size={20} color="#EF4444" />
+                <Ionicons name="trash-outline" size={20} color={COLORS.danger} />
               )}
             </View>
             <Text style={styles.actionRowTextDanger}>
@@ -346,7 +347,7 @@ export default function SettingsScreen({ navigation }) {
               }}
             >
               <View style={styles.actionRowIcon}>
-                <Ionicons name="refresh-outline" size={20} color="#A855F7" />
+                <Ionicons name="refresh-outline" size={20} color={COLORS.primary} />
               </View>
               <Text style={styles.actionRowText}>Reset Onboarding</Text>
             </TouchableOpacity>
@@ -381,7 +382,7 @@ export default function SettingsScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#050013",
+    backgroundColor: COLORS.background,
   },
   header: {
     flexDirection: "row",
@@ -396,7 +397,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 20,
     fontWeight: "700",
-    color: "#FFFFFF",
+    color: COLORS.textPrimary,
     textAlign: "center",
   },
   userInfoSection: {
@@ -407,7 +408,7 @@ const styles = StyleSheet.create({
   userInfoCard: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#1E1B2E",
+    backgroundColor: COLORS.surface,
     borderRadius: 16,
     padding: 16,
     borderWidth: 1.5,
@@ -420,7 +421,7 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     backgroundColor: "rgba(168,85,247,0.2)",
     borderWidth: 2,
-    borderColor: "#A855F7",
+    borderColor: COLORS.primary,
     justifyContent: "center",
     alignItems: "center",
     marginRight: 16,
@@ -428,7 +429,7 @@ const styles = StyleSheet.create({
   avatarSmallText: {
     fontSize: 20,
     fontWeight: "800",
-    color: "#A855F7",
+    color: COLORS.primary,
   },
   userInfoText: {
     flex: 1,
@@ -436,17 +437,17 @@ const styles = StyleSheet.create({
   userInfoName: {
     fontSize: 18,
     fontWeight: "700",
-    color: "#FFFFFF",
+    color: COLORS.textPrimary,
     marginBottom: 4,
   },
   userInfoEmail: {
     fontSize: 14,
-    color: "#94A3B8",
+    color: COLORS.textSecondary,
     marginBottom: 4,
   },
   userInfoMember: {
     fontSize: 12,
-    color: "#64748B",
+    color: COLORS.textMuted,
   },
   section: {
     paddingHorizontal: 16,
@@ -455,23 +456,24 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 13,
     fontWeight: "700",
-    color: "#94A3B8",
+    color: COLORS.textSecondary,
     marginBottom: 12,
     letterSpacing: 1,
   },
   sectionTitleDanger: {
     fontSize: 13,
     fontWeight: "700",
-    color: "#EF4444",
+    color: COLORS.danger,
     marginBottom: 12,
     letterSpacing: 1,
   },
   actionRow: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#1E1B2E",
+    backgroundColor: COLORS.surface,
     borderRadius: 12,
     padding: 16,
+    minHeight: 44,
     marginBottom: 8,
     borderWidth: 1.5,
     borderColor: "rgba(168,85,247,0.3)",
@@ -482,6 +484,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(239,68,68,0.1)",
     borderRadius: 12,
     padding: 16,
+    minHeight: 44,
     marginBottom: 8,
     borderWidth: 1.5,
     borderColor: "rgba(239,68,68,0.3)",
@@ -496,19 +499,19 @@ const styles = StyleSheet.create({
   },
   actionRowText: {
     fontSize: 16,
-    color: "#FFFFFF",
+    color: COLORS.textPrimary,
     fontWeight: "600",
     flex: 1,
   },
   actionRowTextDanger: {
     fontSize: 16,
-    color: "#EF4444",
+    color: COLORS.danger,
     fontWeight: "600",
     flex: 1,
   },
   dangerZoneWarning: {
     fontSize: 12,
-    color: "#94A3B8",
+    color: COLORS.textSecondary,
     textAlign: "center",
     marginTop: 8,
     lineHeight: 18,
@@ -523,16 +526,16 @@ const styles = StyleSheet.create({
   footerText: {
     fontSize: 18,
     fontWeight: "800",
-    color: "#A855F7",
+    color: COLORS.primary,
     marginBottom: 8,
   },
   footerVersion: {
     fontSize: 12,
-    color: "#64748B",
+    color: COLORS.textMuted,
     marginBottom: 4,
   },
   footerCopyright: {
     fontSize: 11,
-    color: "#475569",
+    color: COLORS.textMuted,
   },
 });

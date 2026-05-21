@@ -1,305 +1,146 @@
-# 🌙 DarkNite  
-**Real-time nightlife intel for NYC bars & clubs**
+# DarkNite
 
-DarkNite is a **React Native mobile app** that lets users share and discover live venue vibes — crowd levels, music, pricing, line waits, and more.
+**Real-time nightlife intel — global map, live vibes, and XP gamification**
 
-Check in for points, post detailed vibes, and find the perfect spot for your night out.
+DarkNite is a **React Native (Expo)** app that surfaces nearby bars and clubs via **Google Places**, lets users post structured **vibes** (crowd, music, line, cover, and more), and rewards contributions with **XP, streaks, and badges**.
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
+
 - **Node.js 18+**
 - **npm**
-- **Expo CLI**
-  ```bash
-  npm install -g expo-cli
-Supabase account with a project set up
+- **Expo CLI** (`npm install -g expo-cli`)
+- **Supabase** project
+- **Google Places API** key (Places API New enabled)
 
-Installation
-1️⃣ Clone the repo and install dependencies
+### Installation
+
+```bash
 git clone <your-repo-url>
 cd darknite
 npm install
-2️⃣ Environment variables
-Create a .env file in the project root:
+```
 
+### Environment variables
+
+Create a `.env` file in the project root:
+
+```env
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_ANON_KEY=your-anon-key-here
-📍 Get these from: Supabase Dashboard → Settings → API
+GOOGLE_PLACES_API_KEY=your-google-places-key
+SENTRY_DSN=your-sentry-dsn   # optional
+```
 
-⚠️ Important
+Get Supabase values from: **Dashboard → Settings → API**
 
-.env is in .gitignore
+Get Google key from: **Google Cloud Console → APIs & Services → Credentials** (enable Places API New)
 
-Never commit environment variables
+> `.env` is gitignored — never commit secrets.
 
-3️⃣ Database setup
-If starting fresh, see database-schema.md for the full schema.
+### Database setup
 
-Key tables:
+Apply migrations in `/supabase/migrations/` **in order** via the Supabase SQL Editor (or CLI).
 
-venues
+Required for v2:
 
-vibes
+- `009`–`012` — `place_id` on vibes, `submit_venue_vibe(p_place_id)` RPC
+- `013` — gamification tables (`user_xp`, streaks, badges)
 
-check_ins
+See `database-schema.md` for legacy NYC `venues` documentation.
 
-user_profiles
+### Run the app
 
-user_points
-
-4️⃣ Run the app
+```bash
 npm start
-Scan the QR code with Expo Go (iOS / Android)
+```
 
-Or press:
+- Scan the QR code with **Expo Go** (iOS / Android), or
+- Press `i` (iOS simulator) / `a` (Android emulator)
 
-i → iOS simulator
+After changing `.env`, restart with `expo start --clear`.
 
-a → Android emulator
+---
 
-📱 Features
-🎯 Core Features
-Quick Check-ins (+1 point)
-Clubs: Report line wait time
+## v2 Features
 
-Bars: Report crowd level
+| Area | Description |
+|------|-------------|
+| **Map tab** | Dark-styled map, nearby nightlife from Google Places, search, venue detail sheet |
+| **Vibes** | Post vibes tied to `place_id`; rate-limited via Supabase RPC |
+| **Gamification** | XP on vibe/check-in, streak banner, badges, leaderboard by recent vibe city |
+| **Profile tab** | XP bar, streak, badges, vibe history, settings |
 
-Detailed Vibes (+5 points — coming soon)
-Crowd
+**Navigation:** Map + Profile tabs; stack screens for Post Vibe, Settings, Achievements, Leaderboard.
 
-Music
+**Design:** Belli-inspired `COLORS` palette in `constants/index.js`; haptics on key actions.
 
-Pricing
+---
 
-Ratio
+## Manual QA checklist (device)
 
-Different fields for bars vs clubs
+Run on a physical iPhone and Android emulator before release:
 
-Live Venue Intel
-Latest check-ins & vibes
+1. **Cold launch (iPhone):** Map loads with dark tiles; no grey flash on startup.
+2. **Search → marker → sheet:** Search a venue, tap result, sheet slides up with spring animation.
+3. **Post vibe:** Submit a vibe → success haptic → XP toast → profile XP bar updates.
+4. **Streak:** Post on consecutive local days (or verify streak banner after activity).
+5. **Android smoke:** Map, search, sheet, post vibe, profile load without crashes.
 
-Real-time crowd tracking
+---
 
-Line wait estimates (clubs)
+## Project structure
 
-Gamification
-Earn points for contributions
-
-Track check-ins & vibes
-
-Leaderboards (coming soon)
-
-Personalized “For You” Feed (coming soon)
-Based on preferred days, neighborhoods & music
-
-Smart venue recommendations
-
-🏗️ Key Concepts
-Bars vs Clubs
-Bars track:
-
-Crowd level
-
-Drinks pricing
-
-Bar type
-
-Clubs track:
-
-Line wait
-
-Cover charge
-
-Music
-
-Points System
-✅ Check-in → +1 point
-
-🔥 Post vibe → +5 points (planned)
-
-🗄️ Database
-Schema Overview
-Table	Purpose
-venues	Nightlife venues (bars & clubs)
-vibes	User-submitted detailed vibes
-check_ins	Quick check-ins with minimal info
-user_profiles	User info & nightlife preferences
-user_points	Gamification & scoring
-📚 See database-schema.md for full documentation.
-
-Database Features
-Row Level Security (RLS) on all tables
-
-Users can only modify their own data
-
-Public read access for venue data
-
-Rate limiting & spam prevention
-
-🔐 Authentication & Security
-Supabase Auth
-Email/password authentication
-
-JWT-based sessions
-
-Auto-refresh tokens
-
-RLS Policies
-user_profiles → users edit own profile
-
-user_points → public read, users update own
-
-check_ins → public read, users insert/delete own
-
-vibes → public read, users delete own
-
-venues → public read, admin-only write
-
-Data Privacy
-No sensitive data logged in production
-
-Auth data protected by Supabase
-
-No location tracking (lat/lng removed)
-
-📂 Project Structure
+```
 darknite/
-├── components/              # Reusable UI components
-│   ├── VenueCardLovable.js
-│   ├── VenueDetailsLovable.js
-│   └── CheckInModal.js
-├── contexts/                # Global state
-│   ├── AuthContext.js
-│   └── AppContext.js
-├── services/                # Supabase service layer
-│   ├── vibeService.js
-│   ├── checkInService.js
-│   └── supabase.js
-├── utils/                   # Helper utilities
-│   ├── vibeHelpers.js
-│   ├── priceMapping.js
-│   └── timeHelpers.js
-├── database-schema.md       # Database documentation
-├── .env                     # Environment variables (ignored)
-└── app.config.js            # Expo config
-🔧 Environment Variables
-Required
-Variable	Description	Location
-SUPABASE_URL	Supabase project URL	Dashboard → Settings → API
-SUPABASE_ANON_KEY	Public anonymous key	Dashboard → Settings → API
-Optional
-Variable	Description
-SENTRY_DSN	Error tracking
-NODE_ENV	Environment mode
-💡 The anon key is safe for client-side usage — RLS secures data.
+├── components/          # Screens & UI (MapScreen, PostVibeScreen, VenueDetailSheet, …)
+├── contexts/            # AuthContext, AppContext
+├── services/            # vibeService, googlePlacesService, gamificationService, …
+├── navigation/          # Root, Auth, App stack, Main tabs
+├── constants/           # COLORS, gamification constants
+├── supabase/migrations/ # Ordered SQL migrations
+├── utils/               # supabase client, logger, helpers
+└── app.config.js        # Expo config (reads .env)
+```
 
-🎨 Design Principles
-UI / UX
-Dark mode first (nightlife-optimized)
+---
 
-Fast actions (check-in in ~5 seconds)
+## Environment reference
 
-Emoji-first hierarchy for scannability
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `SUPABASE_URL` | Yes | Supabase project URL |
+| `SUPABASE_ANON_KEY` | Yes | Public anon key (RLS protects data) |
+| `GOOGLE_PLACES_API_KEY` | Yes | Google Places API (New) for map search |
+| `SENTRY_DSN` | No | Error tracking |
 
-Haptic feedback for tactile feel
+---
 
-Data Philosophy
-Fresh over cached
+## Troubleshooting
 
-Progressive disclosure (quick check-ins → detailed vibes)
+**Places / map empty**
 
-Social proof (counts, crowd levels)
+- Confirm `GOOGLE_PLACES_API_KEY` in `.env` and Places API New is enabled.
+- Restart Expo with `--clear`.
 
-Minimal friction
+**RLS or RPC errors on vibe submit**
 
-🚧 Roadmap
-✅ Completed
-Venue map & details
+- User must be logged in.
+- Apply migrations through `012` (RPC uses `p_place_id`).
 
-Check-in system
+**XP / badges not updating**
 
-Basic vibe posting
+- Apply migration `013_add_gamification_tables.sql`.
 
-Authentication
+**Supabase connection**
 
-Points system
+- Verify `SUPABASE_URL` and `SUPABASE_ANON_KEY`; restart dev server after `.env` changes.
 
-RLS policies
+---
 
-🔄 In Progress
-Onboarding flow (4 questions)
+## License
 
-+5 points for vibes
-
-Leaderboards
-
-📋 Planned
-Personalized “For You” feed
-
-Push notifications
-
-Search & filters
-
-Social profiles
-
-Venue recommendations
-
-🛠️ Development
-Running Locally
-npm start
-npm run ios
-npm run android
-Debugging
-React Native Debugger
-
-Supabase Dashboard
-
-Console logs (dev mode)
-
-Code Style
-Functional components + hooks
-
-Modular, focused components
-
-Consistent naming
-
-Document complex logic
-
-🐛 Troubleshooting
-“Failed to connect to Supabase”
-Check .env exists
-
-Verify SUPABASE_URL & SUPABASE_ANON_KEY
-
-Restart Expo after env changes
-
-“RLS policy violation”
-Ensure user is logged in
-
-Confirm auth.uid() matches user_id
-
-Check RLS policies allow action
-
-Check-ins / vibes not appearing
-Pull to refresh (cached data)
-
-Check Supabase logs
-
-Verify INSERT policies
-
-📄 License
 TBD
-
-🤝 Contributing
-This is a personal project, but contributions are welcome!
-
-Fork the repo
-
-Create a feature branch
-
-Test thoroughly
-
-Submit a PR with a clear description

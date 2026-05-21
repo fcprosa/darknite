@@ -36,7 +36,20 @@ function attachProfileVerified(vibe) {
 // ✅ Single source of truth for vibe fields (matches database-schema.md)
 // Includes user_profiles join for is_verified flag (defensively handled)
 const VIBE_SELECT_FIELDS =
-  "id, created_at, venue_id, user_id, crowd, ratio, line, cover, music, bar_type, drinks_price_tier, age_range, crowd_vibe, confidence_score, verified, user_profiles!user_id(is_verified)";
+  "id, created_at, place_id, venue_id, user_id, crowd, ratio, line, cover, music, bar_type, drinks_price_tier, age_range, crowd_vibe, confidence_score, verified, user_profiles!user_id(is_verified)";
+
+/** Resolve v2 Google place_id from vibe payload (PostVibe may send venue_id alias). */
+function resolvePlaceId(vibeOrKey) {
+  if (!vibeOrKey) return null;
+  if (typeof vibeOrKey === "string") return vibeOrKey;
+  return vibeOrKey.place_id || vibeOrKey.venue_id || null;
+}
+
+/** PostgREST filter: match place_id or legacy venue_id for the same key. */
+function placeIdOrFilter(placeId) {
+  const id = String(placeId).replace(/"/g, '\\"');
+  return `place_id.eq."${id}",venue_id.eq."${id}"`;
+}
 
 /**
  * Fetch the latest vibe for a venue with retry logic
@@ -47,11 +60,112 @@ const VIBE_SELECT_FIELDS =
  * @param {string} options.selectFields - Custom select fields (optional)
  * @returns {Promise<Object|null>} Latest vibe data or null
  */
+/**
+ * Fetch recent vibes for a Google place_id (v2).
+ * @param {string} placeId - Google Places place_id
+ * @param {Object} options - { hours, limit }
+ */
+export async function getVibesByPlaceId(placeId, options = {}) {
+  const { hours = 12, limit = 20 } = options;
+
+  if (!placeId || typeof placeId !== "string") {
+    return [];
+  }
+
+  const since = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+
+  try {
+    const { data, error } = await supabase
+      .from("vibes")
+      .select(VIBE_SELECT_FIELDS)
+      .or(placeIdOrFilter(placeId))
+      .gte("created_at", since)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      log.error("Error fetching vibes by place_id:", error.message);
+      return [];
+    }
+
+    if (data && Array.isArray(data)) {
+      data.forEach(attachProfileVerified);
+    }
+    return data || [];
+  } catch (error) {
+    log.error("Exception fetching vibes by place_id:", error);
+    return [];
+  }
+}
+
+/**
+ * Batch aggregate vibe counts (and latest vibe) per place_id for map markers.
+ * @param {string[]} placeIds - Google place_ids
+ * @returns {Promise<Object>} { [placeId]: { count, latestVibe } }
+ */
+export async function getAggregatedVibesByPlaceIds(placeIds) {
+  if (!placeIds?.length) return {};
+
+  const validIds = [...new Set(placeIds.filter(Boolean).map(String))];
+  if (validIds.length === 0) return {};
+
+  const hoursAgo = 12;
+  const since = new Date(Date.now() - hoursAgo * 60 * 60 * 1000).toISOString();
+  const CHUNK_SIZE = 50;
+  const result = {};
+  validIds.forEach((id) => {
+    result[id] = { count: 0, latestVibe: null };
+  });
+
+  try {
+    for (let i = 0; i < validIds.length; i += CHUNK_SIZE) {
+      const chunk = validIds.slice(i, i + CHUNK_SIZE);
+      const orFilter = chunk.map((id) => placeIdOrFilter(id)).join(",");
+
+      const { data, error } = await supabase
+        .from("vibes")
+        .select(VIBE_SELECT_FIELDS)
+        .or(orFilter)
+        .gte("created_at", since)
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        log.error("Error fetching aggregated vibes chunk:", error.message);
+        continue;
+      }
+
+      if (!data?.length) continue;
+
+      for (const vibe of data) {
+        attachProfileVerified(vibe);
+        const key =
+          vibe.place_id && result[vibe.place_id] !== undefined
+            ? vibe.place_id
+            : vibe.venue_id && result[vibe.venue_id] !== undefined
+              ? vibe.venue_id
+              : null;
+        if (!key) continue;
+
+        result[key].count += 1;
+        if (!result[key].latestVibe) {
+          result[key].latestVibe = vibe;
+        }
+      }
+    }
+
+    return result;
+  } catch (error) {
+    log.error("Exception in getAggregatedVibesByPlaceIds:", error);
+    return result;
+  }
+}
+
 export async function getLatestVibe(venueKey, options = {}) {
   const { showError = false, retries = 1, selectFields } = options;
 
-  if (!venueKey || typeof venueKey !== "string") {
-    log.error("Invalid venue key:", venueKey);
+  const placeKey = resolvePlaceId(venueKey);
+  if (!placeKey || typeof placeKey !== "string") {
+    log.error("Invalid place key:", venueKey);
     return null;
   }
 
@@ -67,7 +181,7 @@ export async function getLatestVibe(venueKey, options = {}) {
       const { data, error } = await supabase
         .from("vibes")
         .select(fields)
-        .eq("venue_id", venueKey)
+        .or(placeIdOrFilter(placeKey))
         .gte("created_at", since)
         .order("created_at", { ascending: false })
         .limit(1)
@@ -153,8 +267,8 @@ export async function getRecentVibes(venueKeyOrOptions, hours = 2) {
   }
 
   // Venue-specific mode
-  const venueKey = venueKeyOrOptions;
-  if (!venueKey || typeof venueKey !== "string") return [];
+  const placeKey = resolvePlaceId(venueKeyOrOptions);
+  if (!placeKey || typeof placeKey !== "string") return [];
 
   const since = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
 
@@ -162,7 +276,7 @@ export async function getRecentVibes(venueKeyOrOptions, hours = 2) {
     const { data, error } = await supabase
       .from("vibes")
       .select(VIBE_SELECT_FIELDS)
-      .eq("venue_id", venueKey)
+      .or(placeIdOrFilter(placeKey))
       .gte("created_at", since)
       .order("created_at", { ascending: false })
       .limit(20);
@@ -224,64 +338,17 @@ export async function getHotNowVibes(
  * @returns {Promise<Object>} Object mapping venue_id to latest vibe { [venueId]: vibe }
  */
 export async function getLatestVibesBatch(venueIds) {
-  if (!venueIds || !Array.isArray(venueIds) || venueIds.length === 0) {
-    return {};
-  }
-
-  const validVenueIds = venueIds
-    .filter((id) => id !== null && id !== undefined && id !== "")
-    .map((id) => String(id));
-
-  if (validVenueIds.length === 0) {
-    return {};
-  }
-
-  const uniqueIds = [...new Set(validVenueIds)];
-
-  const hoursAgo = 12;
-  const since = new Date(Date.now() - hoursAgo * 60 * 60 * 1000).toISOString();
-
-  const CHUNK_SIZE = 300;
-  const chunks = [];
-  for (let i = 0; i < uniqueIds.length; i += CHUNK_SIZE) {
-    chunks.push(uniqueIds.slice(i, i + CHUNK_SIZE));
-  }
-
+  const aggregated = await getAggregatedVibesByPlaceIds(venueIds);
   const allVibesMap = {};
-
-  try {
-    for (const chunk of chunks) {
-      const { data, error } = await supabase
-        .from("vibes")
-        .select(VIBE_SELECT_FIELDS)
-        .in("venue_id", chunk)
-        .gte("created_at", since)
-        .order("created_at", { ascending: false });
-
-      if (error) {
-        log.error("Error fetching latest vibes batch chunk:", error.message);
-        continue;
-      }
-
-      if (!data || data.length === 0) continue;
-
-      for (const vibe of data) {
-        attachProfileVerified(vibe);
-        const venueId = String(vibe.venue_id);
-        if (!allVibesMap[venueId]) {
-          allVibesMap[venueId] = vibe;
-        }
-      }
+  for (const [placeId, entry] of Object.entries(aggregated)) {
+    if (entry.latestVibe) {
+      allVibesMap[placeId] = entry.latestVibe;
     }
-
-    log.log(
-      `getLatestVibesBatch: fetched ${Object.keys(allVibesMap).length} latest vibes from ${uniqueIds.length} venues`
-    );
-    return allVibesMap;
-  } catch (error) {
-    log.error("Exception fetching latest vibes batch:", error);
-    return allVibesMap;
   }
+  log.log(
+    `getLatestVibesBatch: ${Object.keys(allVibesMap).length} places from ${venueIds?.length || 0} ids`
+  );
+  return allVibesMap;
 }
 
 /**
@@ -350,7 +417,8 @@ export async function getUserVibes(userId, limit = 10) {
  * @returns {Promise<boolean>}
  */
 export async function hasUserVibeTonight(userId, venueId) {
-  if (!userId || !venueId) return false;
+  const placeId = resolvePlaceId(venueId);
+  if (!userId || !placeId) return false;
 
   try {
     const windowStart = new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString();
@@ -358,7 +426,7 @@ export async function hasUserVibeTonight(userId, venueId) {
       .from("vibes")
       .select("id", { count: "exact", head: true })
       .eq("user_id", userId)
-      .eq("venue_id", venueId)
+      .or(placeIdOrFilter(placeId))
       .gte("created_at", windowStart);
 
     if (error) {
@@ -381,8 +449,9 @@ function validateVibeData(vibeData) {
     return { valid: false, error: "Invalid vibe data" };
   }
 
-  if (!vibeData.venue_id || typeof vibeData.venue_id !== "string") {
-    return { valid: false, error: "venue_id is required and must be a string" };
+  const placeId = resolvePlaceId(vibeData);
+  if (!placeId || typeof placeId !== "string") {
+    return { valid: false, error: "place_id is required and must be a string" };
   }
 
   if (!vibeData.user_id || typeof vibeData.user_id !== "string") {
@@ -506,10 +575,12 @@ export async function createVibe(vibeData) {
       };
     }
 
+    const placeId = resolvePlaceId(vibeData);
+
     const { data: rpcResult, error } = await supabase.rpc(
       "submit_venue_vibe",
       {
-        p_venue_id:          vibeData.venue_id,
+        p_place_id:          placeId,
         p_crowd:             vibeData.crowd             ?? null,
         p_music:             vibeData.music             ?? null,
         p_line:              vibeData.line              ?? null,
@@ -540,7 +611,7 @@ export async function createVibe(vibeData) {
       if (error.code === "P0001" && error.message === "rate_limit_venue") {
         const match = error.details?.match(/minutes_remaining=(\d+)/);
         const minutesRemaining = match ? parseInt(match[1], 10) : 30;
-        log.info("Per-venue rate limit hit:", { venue_id: vibeData.venue_id, minutesRemaining });
+        log.info("Per-place rate limit hit:", { place_id: placeId, minutesRemaining });
         return {
           data: null,
           error,

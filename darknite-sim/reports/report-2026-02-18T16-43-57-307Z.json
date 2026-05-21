@@ -1,0 +1,126 @@
+{
+  "meta": {
+    "startTime": "2026-02-18T16:41:45.509Z",
+    "endTime": "2026-02-18T16:43:55.644Z",
+    "durationMs": 130135,
+    "userCount": 40,
+    "concurrencyLimit": 15,
+    "chaosEnabled": true
+  },
+  "summary": {
+    "totalActions": 578,
+    "successRate": 0.8891,
+    "errorRate": 0.1109,
+    "chaosDrops": 28,
+    "chaosSlows": 38,
+    "chaosRetries": 72
+  },
+  "latency": {
+    "byAction": {
+      "FETCH_FEED": {
+        "p50": 124,
+        "p75": 263,
+        "p90": 1025,
+        "p95": 1874,
+        "p99": 2682,
+        "max": 2951,
+        "count": 228
+      },
+      "OPEN_VENUE": {
+        "p50": 267,
+        "p75": 411,
+        "p90": 870,
+        "p95": 1996,
+        "p99": 2892,
+        "max": 3005,
+        "count": 220
+      },
+      "POST_UPDATE": {
+        "p50": 125,
+        "p75": 248,
+        "p90": 893,
+        "p95": 2166,
+        "p99": 2454,
+        "max": 2454,
+        "count": 46
+      },
+      "REFRESH_FEED": {
+        "p50": 0,
+        "p75": 0,
+        "p90": 0,
+        "p95": 0,
+        "p99": 0,
+        "max": 0,
+        "count": 0
+      },
+      "LIKE_REPORT": {
+        "p50": 163,
+        "p75": 339,
+        "p90": 527,
+        "p95": 763,
+        "p99": 1579,
+        "max": 1579,
+        "count": 21
+      }
+    },
+    "slowQueries": 33
+  },
+  "duplicates": {
+    "confirmed": 0,
+    "collisions": 0,
+    "records": []
+  },
+  "rls": {
+    "expected": 0,
+    "unexpected": 0,
+    "records": []
+  },
+  "race": {
+    "windows": 0,
+    "confirmed": 0,
+    "records": []
+  },
+  "idempotency": {
+    "passed": 5,
+    "failed": 0,
+    "cases": [
+      {
+        "userId": "c0961e6f-df7c-499d-be5a-3629ad8731be",
+        "venueId": "musica",
+        "firstInsertId": null,
+        "secondInsertId": null,
+        "result": "REJECTED"
+      },
+      {
+        "userId": "a38593c8-7920-4fce-8828-3fe00acc033f",
+        "venueId": "bar-kabawa",
+        "firstInsertId": null,
+        "secondInsertId": null,
+        "result": "REJECTED"
+      },
+      {
+        "userId": "b243cc0d-faea-4f1f-85ac-5c56d66db91a",
+        "venueId": "monsieur",
+        "firstInsertId": null,
+        "secondInsertId": null,
+        "result": "REJECTED"
+      },
+      {
+        "userId": "1b14011b-1fb5-459b-9f9f-ae3d8130607a",
+        "venueId": "the-dl",
+        "firstInsertId": null,
+        "secondInsertId": null,
+        "result": "REJECTED"
+      },
+      {
+        "userId": "c4b0cd5f-248d-4852-9488-24de53f169a6",
+        "venueId": "marquee",
+        "firstInsertId": null,
+        "secondInsertId": null,
+        "result": "REJECTED"
+      }
+    ]
+  },
+  "verdict": "PASS",
+  "failureReasons": []
+}
