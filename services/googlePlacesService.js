@@ -8,6 +8,48 @@ const log = logger.tag("GooglePlaces");
 
 const BASE_URL = "https://places.googleapis.com/v1";
 
+let lastPlacesError = null;
+let hasLoggedApiDisabled = false;
+
+/**
+ * Returns the last Places API error (e.g. API not enabled in Cloud Console).
+ */
+export function getPlacesApiError() {
+  return lastPlacesError;
+}
+
+function setPlacesError(status, json) {
+  const message = json?.error?.message || "";
+  const isApiDisabled =
+    status === 403 &&
+    (message.includes("Places API (New)") ||
+      message.includes("places.googleapis.com"));
+
+  if (isApiDisabled) {
+    lastPlacesError = {
+      code: "PLACES_API_DISABLED",
+      message:
+        'Enable "Places API (New)" in Google Cloud Console for this API key, then wait a few minutes and reload.',
+      helpUrl:
+        "https://console.cloud.google.com/apis/library/places.googleapis.com",
+    };
+    if (!hasLoggedApiDisabled) {
+      hasLoggedApiDisabled = true;
+      log.warn(
+        "[GooglePlaces] Places API (New) is disabled for this API key project. Enable it:",
+        lastPlacesError.helpUrl
+      );
+    }
+  } else {
+    lastPlacesError = {
+      code: "PLACES_API_ERROR",
+      message: message || `Places API error (${status})`,
+      helpUrl: null,
+    };
+    log.error("Places API error:", status, message || json);
+  }
+}
+
 function getApiKey() {
   return (
     Constants.expoConfig?.extra?.googlePlacesApiKey ||
@@ -67,10 +109,11 @@ async function placesRequest(path, options = {}) {
     const json = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      log.error("Places API error:", response.status, json);
-      return { error: json?.error?.message || "places_api_error", data: null };
+      setPlacesError(response.status, json);
+      return { error: lastPlacesError?.code || "places_api_error", data: null };
     }
 
+    lastPlacesError = null;
     return { error: null, data: json };
   } catch (err) {
     log.error("Places API request failed:", err);

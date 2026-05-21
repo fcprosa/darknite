@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../contexts/AuthContext";
 import { getUserProfile, updateProfile, getUserProfileUsername } from "../services/profileService";
 import { requestNotificationPermission, cancelExistingReminders, scheduleWeeklyReminders } from "../utils/notificationScheduler";
+import { COLORS } from "../constants";
 
 const MUSIC_GENRES = [
   "Hip-Hop / R&B",
@@ -352,7 +353,7 @@ export default function ProfileSetupScreen({ navigation, route }) {
     return (
       <View style={styles.container}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#A855F7" />
+          <ActivityIndicator size="large" color={COLORS.primary} />
         </View>
       </View>
     );
@@ -374,7 +375,7 @@ export default function ProfileSetupScreen({ navigation, route }) {
     >
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 16) + 10 }]}>
         <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={24} color="#F9FAFB" />
+          <Ionicons name="arrow-back" size={24} color={COLORS.textPrimary} />
         </TouchableOpacity>
         <View style={styles.headerTitleContainer}>
           <Text style={styles.headerTitle}>
@@ -498,7 +499,7 @@ export default function ProfileSetupScreen({ navigation, route }) {
           disabled={!canProceed || saving}
         >
           {saving ? (
-            <ActivityIndicator size="small" color="#FFFFFF" />
+            <ActivityIndicator size="small" color={COLORS.textPrimary} />
           ) : (
             <Text style={styles.nextButtonText}>
               {isJumpedToDays || currentStep === TOTAL_STEPS - 1 ? "Save" : "Next"}
@@ -513,7 +514,7 @@ export default function ProfileSetupScreen({ navigation, route }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#050013",
+    backgroundColor: COLORS.background,
   },
   loadingContainer: {
     flex: 1,
@@ -542,11 +543,11 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 18,
     fontWeight: "700",
-    color: "#F9FAFB",
+    color: COLORS.textPrimary,
   },
   headerSubtitle: {
     fontSize: 12,
-    color: "#9CA3AF",
+    color: COLORS.textSecondary,
     marginTop: 2,
   },
   progressBarContainer: {
@@ -555,7 +556,7 @@ const styles = StyleSheet.create({
   },
   progressBar: {
     height: "100%",
-    backgroundColor: "#A855F7",
+    backgroundColor: COLORS.primary,
   },
   content: {
     flex: 1,
@@ -569,36 +570,36 @@ const styles = StyleSheet.create({
   stepTitle: {
     fontSize: 24,
     fontWeight: "700",
-    color: "#F9FAFB",
+    color: COLORS.textPrimary,
     marginBottom: 8,
   },
   stepDescription: {
     fontSize: 16,
-    color: "#9CA3AF",
+    color: COLORS.textSecondary,
     marginBottom: 32,
   },
   inputContainer: {
     marginBottom: 24,
   },
   input: {
-    backgroundColor: "#0B0625",
+    backgroundColor: COLORS.surface,
     borderRadius: 12,
     padding: 16,
-    color: "#F9FAFB",
+    color: COLORS.textPrimary,
     fontSize: 16,
     borderWidth: 1.5,
     borderColor: "rgba(168,85,247,0.3)",
   },
   inputError: {
-    borderColor: "#EF4444",
+    borderColor: COLORS.danger,
   },
   inputHint: {
-    color: "#9CA3AF",
+    color: COLORS.textSecondary,
     fontSize: 12,
     marginTop: 8,
   },
   inputErrorText: {
-    color: "#EF4444",
+    color: COLORS.danger,
     fontSize: 12,
     marginTop: 8,
   },
@@ -606,7 +607,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   suggestionsLabel: {
-    color: "#9CA3AF",
+    color: COLORS.textSecondary,
     fontSize: 12,
     marginBottom: 8,
   },
@@ -624,7 +625,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   suggestionText: {
-    color: "#A855F7",
+    color: COLORS.primary,
     fontSize: 12,
     fontWeight: "500",
   },
@@ -636,6 +637,7 @@ const styles = StyleSheet.create({
   optionChip: {
     paddingHorizontal: 20,
     paddingVertical: 12,
+    minHeight: 44,
     borderRadius: 12,
     borderWidth: 1.5,
     borderColor: "rgba(168,85,247,0.3)",
@@ -644,16 +646,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   optionChipSelected: {
-    borderColor: "#A855F7",
-    backgroundColor: "#A855F7",
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.primary,
   },
   optionChipText: {
-    color: "#E5E7EB",
+    color: COLORS.textPrimary,
     fontSize: 15,
     fontWeight: "500",
   },
   optionChipTextSelected: {
-    color: "#FFFFFF",
+    color: COLORS.textPrimary,
     fontWeight: "600",
   },
   footer: {
@@ -667,6 +669,7 @@ const styles = StyleSheet.create({
   backButtonFooter: {
     flex: 1,
     paddingVertical: 14,
+    minHeight: 44,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 12,
@@ -674,14 +677,15 @@ const styles = StyleSheet.create({
     borderColor: "rgba(168,85,247,0.3)",
   },
   backButtonText: {
-    color: "#A855F7",
+    color: COLORS.primary,
     fontSize: 16,
     fontWeight: "600",
   },
   nextButton: {
     flex: 2,
-    backgroundColor: "#A855F7",
+    backgroundColor: COLORS.primary,
     paddingVertical: 14,
+    minHeight: 44,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 12,
@@ -690,7 +694,7 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   nextButtonText: {
-    color: "#FFFFFF",
+    color: COLORS.textPrimary,
     fontSize: 16,
     fontWeight: "600",
   },

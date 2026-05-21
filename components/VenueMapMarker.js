@@ -1,10 +1,69 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { Marker } from "react-native-maps";
+import { useAppContext } from "../contexts/AppContext";
+import { getAggregatedVibesByPlaceIds } from "../services/vibeService";
 import { COLORS } from "../constants";
 
-export default function VenueMapMarker({ place, vibeCount = 0, onPress }) {
+const sharedCounts = {};
+const listeners = new Set();
+let fetchTimer = null;
+let inFlightKey = null;
+
+function notifyListeners() {
+  listeners.forEach((fn) => fn());
+}
+
+function scheduleBatchFetch(placeIds) {
+  const ids = [...new Set(placeIds.filter(Boolean))];
+  const key = ids.sort().join("|");
+  if (!key) return;
+
+  if (inFlightKey === key) return;
+
+  if (fetchTimer) clearTimeout(fetchTimer);
+
+  fetchTimer = setTimeout(async () => {
+    fetchTimer = null;
+    inFlightKey = key;
+    try {
+      const aggregated = await getAggregatedVibesByPlaceIds(ids);
+      for (const id of ids) {
+        sharedCounts[id] = aggregated[id]?.count ?? 0;
+      }
+      notifyListeners();
+    } catch (err) {
+      console.error("[VenueMapMarker] batch vibe counts error:", err);
+    } finally {
+      inFlightKey = null;
+    }
+  }, 400);
+}
+
+// Called once from MapScreen when nearbyPlaces changes — not per-marker.
+export function triggerVibeCounts(places) {
+  const ids = (places || []).map((p) => p.place_id);
+  scheduleBatchFetch(ids);
+}
+
+function usePlaceVibeCount(placeId) {
+  const [count, setCount] = useState(sharedCounts[placeId] ?? 0);
+
+  useEffect(() => {
+    // Sync immediately in case sharedCounts was already populated
+    setCount(sharedCounts[placeId] ?? 0);
+
+    const onUpdate = () => setCount(sharedCounts[placeId] ?? 0);
+    listeners.add(onUpdate);
+    return () => listeners.delete(onUpdate);
+  }, [placeId]);
+
+  return count;
+}
+
+export default function VenueMapMarker({ place, onPress }) {
   const { latitude, longitude } = place.geometry?.location || {};
+  const vibeCount = usePlaceVibeCount(place.place_id);
 
   if (!latitude || !longitude) return null;
 

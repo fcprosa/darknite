@@ -559,3 +559,183 @@ Stop and ask before making any structural decision not covered by the plan.
 2. **react-native-maps:** Install via `npx expo install react-native-maps` on Expo SDK 54 (acknowledged).
 3. **Bottom sheet:** `@gorhom/bottom-sheet` for VenueDetailSheet (Opção A) — install in Phase 2, not `react-native-modal`.
 4. **Leaderboard scope:** City = most recent vibe city (Opção A); tiebreak TBD at Phase 4 if needed.
+
+---
+
+## PHASE 5.5 — Map Crash Patch (already applied 2026-05-21)
+
+**TRIGGER:** Random app exit reported during rapid map zoom/pan after Phase 5 completion.
+
+**ROOT CAUSE:** Double-fetch race condition. `MapScreen.js` had both a debounced `handleRegionChangeComplete` AND a `useEffect` watching `region?.latitude/longitude` — both calling `fetchNearby()`. Every pan fired two parallel Places API requests with no cancellation. Stale responses arrived out of order and hammered `setNearbyPlaces`, triggering a react-native-maps marker lifecycle conflict. Secondary issue: `scheduleBatchFetch` was called once per mounted marker per `nearbyPlaces` change (N markers × M pans = N×M calls). Tertiary issue: `handleRealtimeVibeInsert` could fire `setState` after AppProvider unmounted.
+
+**FILES PATCHED:**
+
+| File | Change |
+|------|--------|
+| `components/MapScreen.js` | Added `abortControllerRef`; each `fetchNearby` call aborts the previous one; removed the double-fetch `useEffect`; initial load now triggered from coords `useEffect`; cleanup `useEffect` aborts on unmount; wires `triggerVibeCounts` once per `nearbyPlaces` change |
+| `components/VenueMapMarker.js` | Removed `scheduleBatchFetch` from per-marker hook; exported `triggerVibeCounts(places)` for single-call pattern from MapScreen |
+| `contexts/AppContext.js` | Added `realtimeMountedRef`; `handleRealtimeVibeInsert` guards state update with mounted check; cleanup sets `realtimeMountedRef.current = false` before unsubscribing |
+
+**QUALITY CHECK:** Pan the map rapidly 10+ times in 5 seconds. App must not exit. Verify only one spinner shows per pan gesture (not two). Verify vibe count badges still appear on markers.
+
+**SACRED STEP:** Test the abort behaviour on a slow network (enable "Slow 3G" in dev tools or airplane mode with brief reconnect). Verify the "AbortError" is silently swallowed and does not surface as a red error screen or Sentry alert.
+
+---
+
+## PHASE 6 — Social Feed Layer (2–3 days)
+
+**TRIGGER:** Phase 5.5 quality check passed. Map is stable under rapid interaction.
+
+**PURPOSE:** Add a third bottom tab — a social "Feed" — showing a live, proximity-based stream of vibes posted at nearby venues in the last 6–8 hours. Transform the existing `VenueDetailSheet` into a richer venue page with a scrollable vibe feed. No social graph required: the feed is purely location and time-window driven.
+
+---
+
+### CONCEPT DECISIONS (locked 2026-05-21)
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Feed top-level view | Classic social feed (newest vibes first from nearby venues) | Users want "what's happening now," not a ranked list |
+| Venue drill-down depth | Keep bottom sheet — make it richer and scrollable | No full-screen navigation change needed |
+| Vibe lifespan | 6–8 hours (hardcoded window, no user setting) | Nightlife-appropriate; feed resets naturally each evening |
+| Proximity scope | Same radius as map Nearby Search (1500m default) | Consistent with what user sees on the map |
+| Auth gate | Feed readable by guests; posting requires auth | Lowers discovery friction; preserves UGC gate |
+
+---
+
+### PHASE 6A — Feed Tab Foundation (Day 1)
+
+**TRIGGER:** Phase 5.5 quality check passed.
+
+**PURPOSE:** Build the `FeedScreen` component and wire it as the middle bottom tab. Feed shows real vibes from Supabase filtered to nearby place_ids and the 6–8 hour window.
+
+#### Steps
+
+| # | Action | Owner | Tool | Output |
+|---|--------|-------|------|--------|
+| 6A.1 | Create `services/feedService.js` — two methods: `getNearbyFeed(placeIds, hoursWindow)` and `getFeedForPlace(placeId, hoursWindow)` (see Query Spec below) | Engineer | Cursor | Feed service |
+| 6A.2 | Create `components/VibeCard.js` — single feed card: venue name + type chip, vibe tags, text snippet, username, relative time ("32 min ago"), XP badge if > 20 XP earned | Engineer | Cursor | Vibe card component |
+| 6A.3 | Create `components/FeedScreen.js` — FlatList of `VibeCard`s; pulls `nearbyPlaces` from AppContext to get place_ids; calls `feedService.getNearbyFeed()`; pull-to-refresh; empty state; loads on mount | Engineer | Cursor | Feed screen |
+| 6A.4 | Add `FeedTab` to `navigation/MainTabsNavigator.js` as the centre tab: Feed · Map · Profile (left to right) | Engineer | Cursor | 3-tab nav |
+| 6A.5 | Add Supabase index if not present: `CREATE INDEX IF NOT EXISTS vibes_created_at_place_id_idx ON vibes (created_at DESC, place_id)` — add to a new migration `014_add_feed_index.sql` | Engineer | SQL | Migration file |
+| 6A.6 | Apply migration 014 to Supabase | Engineer | Supabase CLI | Index live |
+| 6A.7 | Test: open Feed tab — vibes from nearby bars appear, sorted newest first, within 6–8 hour window | Engineer | Expo | Feed renders real data |
+
+**FILES CREATED — 6A:**
+- `services/feedService.js`
+- `components/VibeCard.js`
+- `components/FeedScreen.js`
+- `supabase/migrations/014_add_feed_index.sql`
+
+**FILES MODIFIED — 6A:**
+- `navigation/MainTabsNavigator.js` (add Feed tab, reorder to Feed·Map·Profile)
+
+---
+
+### feedService.js — Query Spec
+
+```js
+// Both methods filter to the configured VIBE_WINDOW_HOURS (default 8)
+
+const VIBE_WINDOW_HOURS = 8;
+
+async function getNearbyFeed(placeIds, hoursWindow = VIBE_WINDOW_HOURS) {
+  // SELECT vibes.*, user_profiles.username, user_profiles.avatar_url
+  // FROM vibes
+  // LEFT JOIN user_profiles ON vibes.user_id = user_profiles.id
+  // WHERE vibes.place_id = ANY(placeIds)
+  //   AND vibes.created_at > NOW() - INTERVAL '{hoursWindow} hours'
+  //   AND vibes.is_active = true
+  // ORDER BY vibes.created_at DESC
+  // LIMIT 50
+}
+
+async function getFeedForPlace(placeId, hoursWindow = VIBE_WINDOW_HOURS) {
+  // Same query but WHERE place_id = placeId (single venue)
+  // LIMIT 20
+}
+```
+
+---
+
+### PHASE 6B — Venue Detail Sheet Upgrade (Day 1–2)
+
+**TRIGGER:** Phase 6A quality check passed (Feed tab renders real vibes).
+
+**PURPOSE:** Make `VenueDetailSheet` earn its place. When a user taps a map marker, the sheet now slides up with venue photo, key stats, AND a scrollable list of recent vibes for that specific venue. The sheet becomes the answer to "what's the vibe like *here* right now?"
+
+#### Steps
+
+| # | Action | Owner | Tool | Output |
+|---|--------|-------|------|--------|
+| 6B.1 | Upgrade `components/VenueDetailSheet.js` — add a scrollable vibe section below the existing venue info block; calls `feedService.getFeedForPlace(placeId)` when a place is selected; renders 3–5 `VibeCard`s with a "See all X vibes" CTA at the bottom | Engineer | Cursor | Richer sheet |
+| 6B.2 | Add "See all vibes" navigation — tapping the CTA pushes `VenueVibesScreen` (new screen) which shows the full vibe list for that venue using `FlatList` + `VibeCard` | Engineer | Cursor | Full venue feed |
+| 6B.3 | Create `components/VenueVibesScreen.js` — full-screen vibe list for a single venue; receives `placeId` + `placeName` as nav params; pull-to-refresh; empty state with "Be the first to post a vibe here — +20 XP" CTA | Engineer | Cursor | Venue vibes screen |
+| 6B.4 | Add `VenueVibes` route to `navigation/AppStackNavigator.js` | Engineer | Cursor | Route wired |
+| 6B.5 | Wire "Post Vibe" CTA on `VenueVibesScreen` — navigates to `PostVibeScreen` with `placeId` prepopulated | Engineer | Cursor | CTA works |
+| 6B.6 | Test: tap map marker → sheet shows venue photo + last 3 vibes; tap "See all" → full list; tap "Post Vibe" → PostVibeScreen with correct place pre-filled | Engineer | Expo | Full flow |
+
+**FILES CREATED — 6B:**
+- `components/VenueVibesScreen.js`
+
+**FILES MODIFIED — 6B:**
+- `components/VenueDetailSheet.js` (add vibe feed section)
+- `navigation/AppStackNavigator.js` (add VenueVibes route)
+
+---
+
+### PHASE 6C — Feed Polish & Empty States (Day 2–3)
+
+**TRIGGER:** Phase 6B quality check passed. Both feed and venue sheets show real vibes.
+
+**PURPOSE:** Make the feed feel alive even when sparse. Add skeleton loading, smart empty states, real-time updates, and the gamification tie-in so posting from the feed context awards XP.
+
+#### Steps
+
+| # | Action | Owner | Tool | Output |
+|---|--------|-------|------|--------|
+| 6C.1 | Add skeleton loading to `FeedScreen` — show 5 placeholder `VibeCard` ghost rows while the initial feed loads | Engineer | Cursor | Loading state |
+| 6C.2 | Add tiered empty states to `FeedScreen`: (a) "No vibes nearby yet — be the first" + Post Vibe CTA if user is authenticated; (b) "Sign in to post a vibe and start the night" if guest | Engineer | Cursor | Contextual empty states |
+| 6C.3 | Subscribe `FeedScreen` to Supabase realtime `vibes` INSERT events for visible place_ids — new vibes appear at the top without manual pull-to-refresh | Engineer | Supabase realtime | Live feed |
+| 6C.4 | Add a floating "Post Vibe" button (FAB) at the bottom-right of `FeedScreen` — requires auth, shows `requireAuth()` wall for guests | Engineer | Cursor | Feed-level FAB |
+| 6C.5 | Add venue name as a tappable link on each `VibeCard` — tapping opens the `VenueDetailSheet` for that venue from the feed | Engineer | Cursor | Feed → venue navigation |
+| 6C.6 | Ensure XP toast fires correctly when posting from the feed context (PostVibeScreen already handles this — verify the flow from Feed → PostVibe → XP toast) | Engineer | Expo | XP loop from feed |
+| 6C.7 | Test full night simulation: post 3 vibes at 3 different venues, verify all 3 appear in Feed within 5 seconds without refresh | Engineer | Expo | Realtime feed verified |
+
+**FILES MODIFIED — 6C:**
+- `components/FeedScreen.js` (skeleton, empty states, realtime subscription, FAB)
+- `components/VibeCard.js` (venue name tap target)
+
+---
+
+## PHASE 6 QUALITY GATE
+
+Before tagging v2.1, all of the following must pass on a physical device:
+
+1. Feed tab opens and shows vibes from nearby venues within the 8-hour window
+2. Pull-to-refresh reloads the feed
+3. Posting a new vibe causes it to appear in the feed within 5 seconds (realtime)
+4. Tapping a map marker → VenueDetailSheet shows venue-specific vibes
+5. "See all vibes" → VenueVibesScreen with full list
+6. "Post Vibe" from VenueVibesScreen → PostVibeScreen pre-filled with correct venue
+7. XP toast fires after posting
+8. Empty state shown correctly for a venue with no vibes in the last 8 hours
+9. Guest user sees feed (read-only) but hits auth wall on "Post Vibe"
+
+**SACRED STEP:** Manually verify the 8-hour window query returns zero results for a venue where the last vibe was posted 9+ hours ago. A bug in the time-window filter that shows stale overnight data will make the app feel dead by mid-morning and destroy the "live" perception. This must be confirmed on production data, not mocked data.
+
+---
+
+## UPDATED EXECUTION SUMMARY
+
+| Phase | Name | Status |
+|-------|------|--------|
+| 0 | Branch & Baseline | ✅ Complete |
+| 1 | Purge & Map Setup | ✅ Complete |
+| 2 | Google Places Integration | ✅ Complete |
+| 3 | Supabase Hybrid DB | ✅ Complete |
+| 4 | Gamification Engine | ✅ Complete |
+| 5 | Polish & Belli UI | ✅ Complete |
+| 5.5 | Map Crash Patch | ✅ Applied 2026-05-21 |
+| 6A | Feed Tab Foundation | 🔲 Next |
+| 6B | Venue Detail Sheet Upgrade | 🔲 Pending 6A |
+| 6C | Feed Polish & Empty States | 🔲 Pending 6B |

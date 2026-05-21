@@ -18,11 +18,9 @@ import { getUserVibes } from "../services/vibeService";
 import { getUserProfile } from "../services/profileService";
 import { getUserStats } from "../services/userService";
 import { formatTimeAgo, formatVibeRecency } from "../utils/timeHelpers";
-import {
-  calculateStreak,
-  countNightsOut,
-  checkBadges,
-} from "../utils/profileHelpers";
+import { countNightsOut } from "../utils/profileHelpers";
+import { useGamification } from "../src/hooks/useGamification";
+import { COLORS } from "../constants";
 import { mapCoverPriceToUI } from "../utils/priceMapping";
 import EmptyState, { EmptyStates } from "./EmptyState";
 import IconButton from "./IconButton";
@@ -54,8 +52,15 @@ export default function ProfileScreen({ navigation: navigationProp, isGuest = fa
   const [userVibes, setUserVibes] = useState([]);
   const [userProfile, setUserProfile] = useState(null);
   const [userStats, setUserStats] = useState(null);
-  const [badges, setBadges] = useState([]);
   const [loading, setLoading] = useState(false);
+  const {
+    gamification,
+    refreshGamification,
+    totalXp,
+    level,
+    streak: gamificationStreak,
+    badges,
+  } = useGamification();
   const [loadError, setLoadError] = useState(false);
   const [activeTab, setActiveTab] = useState("vibes"); // "vibes" | "badges"
 
@@ -76,12 +81,7 @@ export default function ProfileScreen({ navigation: navigationProp, isGuest = fa
         setUserVibes(vibes || []);
         setUserProfile(profile);
         setUserStats(stats);
-
-        // Calculate badges
-        if (stats) {
-          const userBadges = checkBadges(stats);
-          setBadges(userBadges);
-        }
+        await refreshGamification(user.id);
       } catch (error) {
         console.error("Error loading profile data:", error);
         setLoadError(true);
@@ -92,14 +92,13 @@ export default function ProfileScreen({ navigation: navigationProp, isGuest = fa
       setUserVibes([]);
       setUserProfile(null);
       setUserStats(null);
-      setBadges([]);
       setLoading(false);
     }
-  }, [isAuthenticated, user?.id, isGuest]);
+  }, [isAuthenticated, user?.id, isGuest, refreshGamification]);
 
   useEffect(() => {
     loadProfileData();
-  }, [isAuthenticated, user?.id, isGuest]);
+  }, [loadProfileData]);
 
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
@@ -132,7 +131,7 @@ export default function ProfileScreen({ navigation: navigationProp, isGuest = fa
           <View style={styles.avatarContainer}>
             <View style={styles.avatarGlow} />
             <View style={styles.avatar}>
-              <Ionicons name="person" size={48} color="#A855F7" />
+              <Ionicons name="person" size={48} color={COLORS.primary} />
             </View>
           </View>
           <Text style={styles.userName}>Guest</Text>
@@ -143,7 +142,7 @@ export default function ProfileScreen({ navigation: navigationProp, isGuest = fa
 
         <View style={styles.section}>
           <View style={styles.guestCard}>
-            <Ionicons name="information-circle-outline" size={32} color="#A855F7" style={{ marginBottom: 16 }} />
+            <Ionicons name="information-circle-outline" size={32} color={COLORS.primary} style={{ marginBottom: 16 }} />
             <Text style={styles.guestCardTitle}>Sign in to unlock features</Text>
             <Text style={styles.guestCardText}>
               Sign in to post vibes, save venues, and access your profile. It takes less than 10 seconds!
@@ -166,8 +165,12 @@ export default function ProfileScreen({ navigation: navigationProp, isGuest = fa
 
   // Stats with validation
   const vibeCount = userStats?.vibeCount || 0;
-  const streak = userStats?.streak || 0;
+  const streak = gamificationStreak ?? 0;
   const nightsOut = userStats?.nightsOut || 0;
+  const xpProgress = level?.progressToNext
+    ? Math.min(1, (level.progressInLevel || 0) / level.progressToNext)
+    : 0;
+  const topBadges = (badges || []).slice(0, 6);
 
   // Going-out days (for MY NIGHTS row)
   const goingOutDays = userProfile?.going_out_days || [];
@@ -178,7 +181,7 @@ export default function ProfileScreen({ navigation: navigationProp, isGuest = fa
     if (loading) {
       return (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#A855F7" />
+          <ActivityIndicator size="large" color={COLORS.primary} />
           <Text style={styles.loadingText}>Loading...</Text>
         </View>
       );
@@ -187,7 +190,7 @@ export default function ProfileScreen({ navigation: navigationProp, isGuest = fa
     if (loadError) {
       return (
         <View style={styles.emptyState}>
-          <Ionicons name="alert-circle-outline" size={48} color="#EF4444" style={{ marginBottom: 12 }} />
+          <Ionicons name="alert-circle-outline" size={48} color={COLORS.danger} style={{ marginBottom: 12 }} />
           <Text style={styles.emptyText}>Failed to load data</Text>
           <TouchableOpacity style={styles.retryButton} onPress={loadProfileData}>
             <Text style={styles.retryButtonText}>Retry</Text>
@@ -289,7 +292,7 @@ export default function ProfileScreen({ navigation: navigationProp, isGuest = fa
   if (loading && !userProfile) {
     return (
       <View style={[styles.container, styles.loadingContainer]}>
-        <ActivityIndicator size="large" color="#A855F7" />
+        <ActivityIndicator size="large" color={COLORS.primary} />
         <Text style={styles.loadingText}>Loading profile...</Text>
       </View>
     );
@@ -303,7 +306,7 @@ export default function ProfileScreen({ navigation: navigationProp, isGuest = fa
         <View style={styles.headerTop}>
           <View style={{ width: 44 }} />
           <IconButton onPress={handleSettings}>
-            <Ionicons name="settings-outline" size={22} color="#9CA3AF" />
+            <Ionicons name="settings-outline" size={22} color={COLORS.textSecondary} />
           </IconButton>
         </View>
 
@@ -341,6 +344,54 @@ export default function ProfileScreen({ navigation: navigationProp, isGuest = fa
           <Text style={styles.statGridLabel}>Nights Out</Text>
         </View>
       </View>
+
+      {/* XP progress */}
+      <View style={styles.xpSection}>
+        <View style={styles.xpHeader}>
+          <Text style={styles.xpTitle}>
+            Level {level?.level ?? 1} · {level?.title ?? "Rookie"}
+          </Text>
+          <Text style={styles.xpTotal}>{formatNumber(totalXp)} XP</Text>
+        </View>
+        <View style={styles.xpBarTrack}>
+          <View
+            style={[styles.xpBarFill, { width: `${Math.round(xpProgress * 100)}%` }]}
+          />
+        </View>
+        {level?.nextLevelXp != null ? (
+          <Text style={styles.xpSubtext}>
+            {formatNumber(level.nextLevelXp - totalXp)} XP to next level
+          </Text>
+        ) : null}
+      </View>
+
+      <View style={styles.linkRow}>
+        <TouchableOpacity
+          style={styles.linkButton}
+          onPress={() => navigation.navigate("Achievements")}
+        >
+          <Text style={styles.linkButtonText}>All badges</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.linkButton}
+          onPress={() => navigation.navigate("Leaderboard")}
+        >
+          <Text style={styles.linkButtonText}>Leaderboard</Text>
+        </TouchableOpacity>
+      </View>
+
+      {topBadges.length > 0 ? (
+        <View style={styles.topBadgesRow}>
+          {topBadges.map((b) => (
+            <View
+              key={b.key}
+              style={[styles.miniBadge, !b.unlocked && styles.miniBadgeLocked]}
+            >
+              <Text style={styles.miniBadgeEmoji}>{b.emoji}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
 
       {/* Going-Out Days */}
       <TouchableOpacity
@@ -389,7 +440,7 @@ export default function ProfileScreen({ navigation: navigationProp, isGuest = fa
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#050013",
+    backgroundColor: COLORS.background,
   },
   loadingContainer: {
     flex: 1,
@@ -399,7 +450,7 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     fontSize: 14,
-    color: "#94A3B8",
+    color: COLORS.textSecondary,
     marginTop: 12,
   },
   headerSection: {
@@ -429,7 +480,7 @@ const styles = StyleSheet.create({
     width: 76,
     height: 76,
     borderRadius: 38,
-    backgroundColor: "#A855F7",
+    backgroundColor: COLORS.primary,
     opacity: 0.2,
     top: -3,
     left: -3,
@@ -440,29 +491,29 @@ const styles = StyleSheet.create({
     borderRadius: 35,
     backgroundColor: "rgba(168,85,247,0.15)",
     borderWidth: 2.5,
-    borderColor: "#A855F7",
+    borderColor: COLORS.primary,
     justifyContent: "center",
     alignItems: "center",
   },
   avatarText: {
     fontSize: 28,
     fontWeight: "800",
-    color: "#A855F7",
+    color: COLORS.primary,
   },
   usernameText: {
     fontSize: 20,
     fontWeight: "700",
-    color: "#FFFFFF",
+    color: COLORS.textPrimary,
     marginBottom: 4,
   },
   locationText: {
     fontSize: 14,
-    color: "#94A3B8",
+    color: COLORS.textSecondary,
     fontWeight: "500",
   },
   bioText: {
     fontSize: 14,
-    color: "#94A3B8",
+    color: COLORS.textSecondary,
     fontStyle: "italic",
     textAlign: "center",
     marginTop: 8,
@@ -472,7 +523,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginHorizontal: 16,
     marginBottom: 20,
-    backgroundColor: "#1E1B2E",
+    backgroundColor: COLORS.surface,
     borderRadius: 14,
     paddingVertical: 16,
     borderWidth: 1,
@@ -485,13 +536,13 @@ const styles = StyleSheet.create({
   statGridValue: {
     fontSize: 22,
     fontWeight: "800",
-    color: "#F5F3FF",
+    color: COLORS.textPrimary,
     marginBottom: 2,
   },
   statGridLabel: {
     fontSize: 11,
     fontWeight: "600",
-    color: "#6B7280",
+    color: COLORS.textMuted,
     textTransform: "uppercase",
     letterSpacing: 0.3,
   },
@@ -505,9 +556,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginHorizontal: 16,
     marginBottom: 16,
-    backgroundColor: "#1E1B2E",
+    backgroundColor: COLORS.surface,
     borderRadius: 12,
     paddingVertical: 14,
+    minHeight: 44,
     paddingHorizontal: 16,
     borderWidth: 1,
     borderColor: "rgba(168, 85, 247, 0.12)",
@@ -519,18 +571,18 @@ const styles = StyleSheet.create({
   goingOutLabel: {
     fontSize: 10,
     fontWeight: "700",
-    color: "#6B7280",
+    color: COLORS.textMuted,
     textTransform: "uppercase",
     letterSpacing: 0.8,
   },
   goingOutValue: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#E9D5FF",
+    color: COLORS.primaryGlow,
   },
   goingOutArrow: {
     fontSize: 20,
-    color: "#6B7280",
+    color: COLORS.textMuted,
     fontWeight: "300",
   },
   activitySection: {
@@ -539,7 +591,7 @@ const styles = StyleSheet.create({
   },
   tabContainer: {
     flexDirection: "row",
-    backgroundColor: "#1E1B2E",
+    backgroundColor: COLORS.surface,
     borderRadius: 10,
     padding: 3,
     marginBottom: 14,
@@ -549,26 +601,28 @@ const styles = StyleSheet.create({
   tab: {
     flex: 1,
     paddingVertical: 10,
+    minHeight: 44,
     alignItems: "center",
+    justifyContent: "center",
     borderRadius: 8,
   },
   tabActive: {
-    backgroundColor: "#A855F7",
+    backgroundColor: COLORS.primary,
   },
   tabText: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#94A3B8",
+    color: COLORS.textSecondary,
   },
   tabTextActive: {
-    color: "#FFFFFF",
+    color: COLORS.textPrimary,
     fontWeight: "700",
   },
   activityList: {
     gap: 12,
   },
   activityItem: {
-    backgroundColor: "#1E1B2E",
+    backgroundColor: COLORS.surface,
     borderRadius: 12,
     padding: 14,
     borderWidth: 1,
@@ -589,16 +643,16 @@ const styles = StyleSheet.create({
   activityItemCrowd: {
     fontSize: 15,
     fontWeight: "700",
-    color: "#F5F3FF",
+    color: COLORS.textPrimary,
   },
   activityItemVenue: {
     fontSize: 13,
-    color: "#9CA3AF",
+    color: COLORS.textSecondary,
     fontWeight: "500",
   },
   activityItemTime: {
     fontSize: 12,
-    color: "#94A3B8",
+    color: COLORS.textSecondary,
   },
   activityChips: {
     flexDirection: "row",
@@ -608,11 +662,11 @@ const styles = StyleSheet.create({
   },
   activityChip: {
     fontSize: 12,
-    color: "#C4B5FD",
+    color: COLORS.primaryGlow,
     fontWeight: "500",
   },
   badgeItem: {
-    backgroundColor: "#1E1B2E",
+    backgroundColor: COLORS.surface,
     borderRadius: 12,
     padding: 16,
     borderWidth: 1.5,
@@ -633,15 +687,101 @@ const styles = StyleSheet.create({
   badgeTitle: {
     fontSize: 16,
     fontWeight: "700",
-    color: "#FFFFFF",
+    color: COLORS.textPrimary,
     marginBottom: 4,
   },
   badgeDescription: {
     fontSize: 13,
-    color: "#94A3B8",
+    color: COLORS.textSecondary,
   },
   badgeStatus: {
     fontSize: 24,
+  },
+  xpSection: {
+    marginHorizontal: 20,
+    marginBottom: 12,
+    backgroundColor: COLORS.surface,
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  xpHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  xpTitle: {
+    color: COLORS.textPrimary,
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  xpTotal: {
+    color: COLORS.accentGlow,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  xpBarTrack: {
+    height: 8,
+    backgroundColor: COLORS.surfaceRaised,
+    borderRadius: 4,
+    overflow: "hidden",
+  },
+  xpBarFill: {
+    height: "100%",
+    backgroundColor: COLORS.primary,
+    borderRadius: 4,
+  },
+  xpSubtext: {
+    color: COLORS.textMuted,
+    fontSize: 12,
+    marginTop: 6,
+  },
+  linkRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginHorizontal: 20,
+    marginBottom: 12,
+  },
+  linkButton: {
+    flex: 1,
+    backgroundColor: COLORS.surfaceRaised,
+    paddingVertical: 10,
+    minHeight: 44,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  linkButtonText: {
+    color: COLORS.primaryGlow,
+    fontWeight: "600",
+    fontSize: 14,
+  },
+  topBadgesRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginHorizontal: 20,
+    marginBottom: 16,
+  },
+  miniBadge: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: COLORS.surface,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+  },
+  miniBadgeLocked: {
+    opacity: 0.4,
+    borderColor: COLORS.border,
+  },
+  miniBadgeEmoji: {
+    fontSize: 22,
   },
   emptyState: {
     paddingVertical: 48,
@@ -649,29 +789,29 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 16,
-    color: "#94A3B8",
+    color: COLORS.textSecondary,
     fontWeight: "600",
     marginBottom: 4,
   },
   emptySubtext: {
     fontSize: 14,
-    color: "#64748B",
+    color: COLORS.textMuted,
   },
   retryButton: {
     marginTop: 16,
     paddingHorizontal: 24,
     paddingVertical: 10,
-    backgroundColor: "#A855F7",
+    backgroundColor: COLORS.primary,
     borderRadius: 8,
   },
   retryButtonText: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#FFFFFF",
+    color: COLORS.textPrimary,
   },
   // Guest styles
   guestCard: {
-    backgroundColor: "#0B0625",
+    backgroundColor: COLORS.background,
     borderRadius: 16,
     padding: 24,
     alignItems: "center",
@@ -681,25 +821,25 @@ const styles = StyleSheet.create({
   guestCardTitle: {
     fontSize: 20,
     fontWeight: "700",
-    color: "#F9FAFB",
+    color: COLORS.textPrimary,
     marginBottom: 12,
     textAlign: "center",
   },
   guestCardText: {
     fontSize: 15,
-    color: "#9CA3AF",
+    color: COLORS.textSecondary,
     textAlign: "center",
     marginBottom: 24,
     lineHeight: 22,
   },
   guestSignInButton: {
-    backgroundColor: "#A855F7",
+    backgroundColor: COLORS.primary,
     paddingHorizontal: 32,
     paddingVertical: 12,
     borderRadius: 12,
   },
   guestSignInButtonText: {
-    color: "#FFFFFF",
+    color: COLORS.textPrimary,
     fontSize: 16,
     fontWeight: "600",
   },
@@ -712,17 +852,17 @@ const styles = StyleSheet.create({
   userName: {
     fontSize: 24,
     fontWeight: "700",
-    color: "#F9FAFB",
+    color: COLORS.textPrimary,
     marginBottom: 12,
   },
   signInButton: {
-    backgroundColor: "#A855F7",
+    backgroundColor: COLORS.primary,
     paddingHorizontal: 20,
     paddingVertical: 10,
     borderRadius: 20,
   },
   signInButtonText: {
-    color: "#F9FAFB",
+    color: COLORS.textPrimary,
     fontSize: 14,
     fontWeight: "600",
   },

@@ -1,16 +1,21 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { View, StyleSheet, ActivityIndicator } from "react-native";
+// v2 crash-fix: abortControllerRef cancels stale Places API responses on rapid pan/zoom
+import { View, Text, StyleSheet, ActivityIndicator } from "react-native";
 import MapView from "react-native-maps";
-import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { useNavigation } from "@react-navigation/native";
 import { useLocation } from "../src/hooks/useLocation";
 import { useAppContext } from "../contexts/AppContext";
-import { nearbyNightlife, getPlaceDetails } from "../services/googlePlacesService";
+import {
+  nearbyNightlife,
+  getPlaceDetails,
+  getPlacesApiError,
+} from "../services/googlePlacesService";
 import { DARK_MAP_STYLE } from "../constants/mapStyles";
 import { COLORS } from "../constants";
 import MapSearchBar from "./MapSearchBar";
-import VenueMapMarker from "./VenueMapMarker";
+import VenueMapMarker, { triggerVibeCounts } from "./VenueMapMarker";
 import VenueDetailSheet from "./VenueDetailSheet";
+import StreakBanner from "./StreakBanner";
 
 const DEFAULT_REGION = {
   latitude: 40.7128,
@@ -23,7 +28,8 @@ export default function MapScreen() {
   const navigation = useNavigation();
   const mapRef = useRef(null);
   const debounceRef = useRef(null);
-  const rawSampleLoggedRef = useRef(false);
+  const apiDisabledRef = useRef(false);
+  const abortControllerRef = useRef(null);
 
   const { coords, loading: locationLoading } = useLocation();
   const {
@@ -35,36 +41,58 @@ export default function MapScreen() {
   const [region, setRegion] = useState(null);
   const [selectedPlace, setSelectedPlace] = useState(null);
   const [loadingPlaces, setLoadingPlaces] = useState(false);
+  const [placesApiError, setPlacesApiError] = useState(null);
 
+  // Initial region + first fetch. Subsequent fetches come only from handleRegionChangeComplete (debounced).
   useEffect(() => {
     if (coords) {
-      setRegion({
+      const r = {
         latitude: coords.latitude,
         longitude: coords.longitude,
         latitudeDelta: 0.05,
         longitudeDelta: 0.05,
-      });
+      };
+      setRegion(r);
+      fetchNearby(r.latitude, r.longitude);
     } else if (!locationLoading) {
       setRegion(DEFAULT_REGION);
+      fetchNearby(DEFAULT_REGION.latitude, DEFAULT_REGION.longitude);
     }
-  }, [coords, locationLoading]);
+  }, [coords, locationLoading]); // fetchNearby is a stable ref — intentionally omitted from deps
 
   const fetchNearby = useCallback(async (lat, lng) => {
+    if (apiDisabledRef.current) return;
+
+    // Cancel any in-flight request before starting a new one
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setLoadingPlaces(true);
     try {
       const places = await nearbyNightlife(lat, lng, 1500);
-      if (!rawSampleLoggedRef.current && places.length > 0) {
-        console.log(
-          "[MapScreen] Sacred check — first nearby place shape:",
-          JSON.stringify(places[0], null, 2)
-        );
-        rawSampleLoggedRef.current = true;
+
+      // Discard response if a newer request has already started
+      if (controller.signal.aborted) return;
+
+      const apiError = getPlacesApiError();
+      if (apiError) {
+        setPlacesApiError(apiError);
+        if (apiError.code === "PLACES_API_DISABLED") {
+          apiDisabledRef.current = true;
+        }
+      } else {
+        setPlacesApiError(null);
       }
+
       setNearbyPlaces(places);
     } catch (err) {
+      if (controller.signal.aborted) return; // expected — not an error
       console.error("[MapScreen] nearbyNightlife error:", err);
     } finally {
-      setLoadingPlaces(false);
+      if (!controller.signal.aborted) setLoadingPlaces(false);
     }
   }, [setNearbyPlaces]);
 
@@ -79,14 +107,18 @@ export default function MapScreen() {
     [fetchNearby]
   );
 
+  // Trigger vibe-count batch fetch once when nearbyPlaces updates — not per-marker
   useEffect(() => {
-    if (region) {
-      fetchNearby(region.latitude, region.longitude);
-    }
+    if (nearbyPlaces.length > 0) triggerVibeCounts(nearbyPlaces);
+  }, [nearbyPlaces]);
+
+  // Cleanup debounce and abort any in-flight request on unmount
+  useEffect(() => {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (abortControllerRef.current) abortControllerRef.current.abort();
     };
-  }, [region?.latitude, region?.longitude]);
+  }, []);
 
   const openPlace = useCallback(async (place) => {
     const details = await getPlaceDetails(place.place_id);
@@ -148,7 +180,7 @@ export default function MapScreen() {
   };
 
   return (
-    <GestureHandlerRootView style={styles.container}>
+    <View style={styles.container}>
       <MapView
         ref={mapRef}
         style={styles.map}
@@ -168,12 +200,20 @@ export default function MapScreen() {
         ))}
       </MapView>
 
+      <StreakBanner />
+
       <MapSearchBar
         locationBias={locationBias}
         onSelectPlace={handleSearchSelect}
       />
 
-      {loadingPlaces ? (
+      {placesApiError ? (
+        <View style={styles.apiBanner}>
+          <Text style={styles.apiBannerText}>{placesApiError.message}</Text>
+        </View>
+      ) : null}
+
+      {loadingPlaces && !placesApiError ? (
         <View style={styles.placesLoader}>
           <ActivityIndicator size="small" color={COLORS.primary} />
         </View>
@@ -184,7 +224,7 @@ export default function MapScreen() {
         onClose={() => setSelectedPlace(null)}
         onPostVibe={handlePostVibe}
       />
-    </GestureHandlerRootView>
+    </View>
   );
 }
 
@@ -211,5 +251,21 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     borderWidth: 1,
     borderColor: COLORS.border,
+  },
+  apiBanner: {
+    position: "absolute",
+    bottom: 88,
+    left: 16,
+    right: 16,
+    backgroundColor: COLORS.surfaceRaised,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.danger,
+    padding: 12,
+  },
+  apiBannerText: {
+    color: COLORS.textSecondary,
+    fontSize: 13,
+    lineHeight: 18,
   },
 });

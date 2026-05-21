@@ -2,6 +2,7 @@ import React from "react";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
 import MapScreen from "../components/MapScreen";
+import FeedScreen from "../components/FeedScreen";
 import ProfileScreen from "../components/ProfileScreen";
 import { useAppContext } from "../contexts/AppContext";
 import { COLORS } from "../constants";
@@ -31,6 +32,17 @@ export default function MainTabsNavigator() {
         },
       }}
     >
+      <Tab.Screen
+        name="FeedTab"
+        component={FeedScreen}
+        options={{
+          tabBarLabel: "Feed",
+          tabBarIcon: ({ color, size }) => {
+            const numericSize = typeof size === "number" && !isNaN(size) ? size : 24;
+            return <Ionicons name="flash-outline" size={numericSize} color={color} />;
+          },
+        }}
+      />
       <Tab.Screen
         name="MapTab"
         component={MapScreen}

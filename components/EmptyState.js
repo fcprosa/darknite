@@ -2,6 +2,7 @@ import React from "react";
 import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import { COLORS } from "../constants";
 
 /**
  * Reusable empty state component for lists and screens
@@ -30,13 +31,13 @@ export default function EmptyState({
     return (
       <View style={styles.cardContainer}>
         <LinearGradient
-          colors={["rgba(168, 85, 247, 0.08)", "rgba(168, 85, 247, 0.02)"]}
+          colors={[`${COLORS.primary}14`, `${COLORS.primary}05`]}
           style={styles.cardGradient}
         >
           {emoji ? (
             <Text style={styles.cardEmoji}>{emoji}</Text>
           ) : icon ? (
-            <Ionicons name={icon} size={32} color="#6B7280" />
+            <Ionicons name={icon} size={32} color={COLORS.textMuted} />
           ) : null}
           <Text style={styles.cardTitle}>{title}</Text>
           {message && <Text style={styles.cardMessage}>{message}</Text>}
@@ -54,7 +55,7 @@ export default function EmptyState({
           <Ionicons
             name={icon}
             size={isCompact ? 40 : 56}
-            color="#4B5563"
+            color={COLORS.textMuted}
           />
         ) : null}
       </View>
@@ -74,7 +75,7 @@ export default function EmptyState({
           activeOpacity={0.8}
         >
           <LinearGradient
-            colors={["#A855F7", "#9333EA"]}
+            colors={[COLORS.primary, COLORS.primaryGlow]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={styles.actionButtonGradient}
@@ -124,6 +125,13 @@ export const EmptyStates = {
     message: "Be the first to share what's happening here!",
   },
 
+  // Venue sheet - first vibe at a place
+  venueFirstVibe: {
+    emoji: "✨",
+    title: "Be the first to post a vibe here",
+    message: "+20 XP explorer bonus",
+  },
+
   // Search - no results
   noSearchResults: {
     emoji: "🔎",
@@ -169,7 +177,7 @@ const styles = StyleSheet.create({
     width: 100,
     height: 100,
     borderRadius: 50,
-    backgroundColor: "rgba(75, 85, 99, 0.15)",
+    backgroundColor: `${COLORS.textMuted}26`,
     justifyContent: "center",
     alignItems: "center",
     marginBottom: 24,
@@ -189,7 +197,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 20,
     fontWeight: "700",
-    color: "#F9FAFB",
+    color: COLORS.textPrimary,
     textAlign: "center",
     marginBottom: 8,
   },
@@ -199,7 +207,7 @@ const styles = StyleSheet.create({
   },
   message: {
     fontSize: 15,
-    color: "#9CA3AF",
+    color: COLORS.textSecondary,
     textAlign: "center",
     lineHeight: 22,
     marginBottom: 24,
@@ -212,6 +220,7 @@ const styles = StyleSheet.create({
   actionButton: {
     borderRadius: 12,
     overflow: "hidden",
+    minHeight: 44,
   },
   actionButtonCompact: {
     borderRadius: 10,
@@ -219,9 +228,12 @@ const styles = StyleSheet.create({
   actionButtonGradient: {
     paddingVertical: 14,
     paddingHorizontal: 28,
+    minHeight: 44,
+    justifyContent: "center",
+    alignItems: "center",
   },
   actionButtonText: {
-    color: "#FFFFFF",
+    color: COLORS.textPrimary,
     fontSize: 16,
     fontWeight: "600",
   },
@@ -232,7 +244,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     overflow: "hidden",
     borderWidth: 1,
-    borderColor: "rgba(168, 85, 247, 0.15)",
+    borderColor: `${COLORS.primary}26`,
   },
   cardGradient: {
     paddingVertical: 32,
@@ -246,13 +258,13 @@ const styles = StyleSheet.create({
   cardTitle: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#E5E7EB",
+    color: COLORS.textPrimary,
     textAlign: "center",
     marginBottom: 4,
   },
   cardMessage: {
     fontSize: 14,
-    color: "#9CA3AF",
+    color: COLORS.textSecondary,
     textAlign: "center",
   },
 });

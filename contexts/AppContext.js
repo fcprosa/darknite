@@ -1,13 +1,25 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { fetchVibeWithProfile } from "../services/vibeService";
+import { getLevelForXP } from "../constants/gamification";
+import { getUserGamificationState } from "../services/gamificationService";
 import { supabase } from "../utils/supabase";
 import * as Location from "expo-location";
+import { useAuth } from "./AuthContext";
 
 const AppContext = React.createContext(null);
 
 const RECENT_VIBE_DURATION_MS = 60000;
 
+const defaultGamification = {
+  totalXp: 0,
+  level: getLevelForXP(0),
+  streak: { current: 0, longest: 0, lastVibeDate: null },
+  badges: [],
+  lastCity: null,
+};
+
 export function AppProvider({ children }) {
+  const { user, isAuthenticated } = useAuth();
   const [nearbyPlaces, setNearbyPlaces] = useState([]);
   const [vibesByPlaceId, setVibesByPlaceId] = useState({});
   const [refreshKey, setRefreshKey] = useState(0);
@@ -19,8 +31,43 @@ export function AppProvider({ children }) {
   const [latestBarCrowdByVenueId, setLatestBarCrowdByVenueId] = useState({});
   const [latestLineWaitByVenueId, setLatestLineWaitByVenueId] = useState({});
   const [moveCountsByVenueId, setMoveCountsByVenueId] = useState({});
+  const [gamification, setGamification] = useState(defaultGamification);
+  const [gamificationLoading, setGamificationLoading] = useState(false);
 
   const realtimeChannelRef = useRef(null);
+  const realtimeMountedRef = useRef(true);
+
+  const loadGamification = useCallback(async (userId) => {
+    if (!userId) {
+      setGamification(defaultGamification);
+      return;
+    }
+    setGamificationLoading(true);
+    try {
+      const state = await getUserGamificationState(userId);
+      setGamification(state);
+    } catch (err) {
+      console.error("[AppContext] loadGamification:", err);
+    } finally {
+      setGamificationLoading(false);
+    }
+  }, []);
+
+  const refreshGamification = useCallback(
+    async (userId) => {
+      const id = userId || user?.id;
+      await loadGamification(id);
+    },
+    [loadGamification, user?.id]
+  );
+
+  useEffect(() => {
+    if (isAuthenticated && user?.id) {
+      loadGamification(user.id);
+    } else {
+      setGamification(defaultGamification);
+    }
+  }, [isAuthenticated, user?.id, loadGamification]);
 
   const upsertVibeForPlace = useCallback((vibe) => {
     const placeKey = vibe?.place_id || vibe?.venue_id;
@@ -44,7 +91,8 @@ export function AppProvider({ children }) {
 
       try {
         const fullVibe = await fetchVibeWithProfile(newVibe.id);
-        if (fullVibe) {
+        // Guard: don't setState if the provider has unmounted while fetch was in-flight
+        if (fullVibe && realtimeMountedRef.current) {
           fullVibe.isRecent = true;
           upsertVibeForPlace(fullVibe);
         }
@@ -72,6 +120,7 @@ export function AppProvider({ children }) {
 
     realtimeChannelRef.current = channel;
     return () => {
+      realtimeMountedRef.current = false;
       if (realtimeChannelRef.current) {
         supabase.removeChannel(realtimeChannelRef.current);
       }
@@ -172,6 +221,10 @@ export function AppProvider({ children }) {
         moveCountsByVenueId,
         refreshMoveCounts,
         incrementMoveCount,
+        gamification,
+        gamificationLoading,
+        loadGamification,
+        refreshGamification,
       }}
     >
       {children}

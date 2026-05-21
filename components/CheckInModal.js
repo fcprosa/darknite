@@ -15,6 +15,9 @@ import { createCheckIn } from "../services/checkInService";
 import { scheduleVibeReminder } from "../services/notificationService";
 import { areVibeRemindersEnabled } from "../services/profileService";
 import * as Haptics from "expo-haptics";
+import XPToast from "./XPToast";
+import { useGamification } from "../src/hooks/useGamification";
+import { getLocalActivityDate } from "../constants/gamification";
 
 /**
  * CheckInModal - Venue-type-specific check-in flow
@@ -25,7 +28,9 @@ export default function CheckInModal({ visible, onClose, venue, onSuccess }) {
   const insets = useSafeAreaInsets();
   const { user, isAuthenticated } = useAuth();
   const { upsertLatestBarCrowd, upsertLatestLineWait } = useAppContext();
+  const { awardXP } = useGamification();
   const [loading, setLoading] = useState(false);
+  const [xpToast, setXpToast] = useState({ visible: false, lines: [] });
   
   // CLUB: Line wait time
   const [lineWait, setLineWait] = useState(null);
@@ -65,13 +70,13 @@ export default function CheckInModal({ visible, onClose, venue, onSuccess }) {
     setLoading(true);
 
     try {
-      const venueId = venue?.id;
-      if (!venueId) throw new Error("Invalid venue");
+      const placeId = venue?.place_id || venue?.id;
+      if (!placeId) throw new Error("Invalid venue");
 
-      // Prepare check-in data based on venue type
       const checkInData = {
         userId: user.id,
-        venueId,
+        venueId: placeId,
+        placeId,
       };
 
       if (isClub) {
@@ -94,25 +99,29 @@ export default function CheckInModal({ visible, onClose, venue, onSuccess }) {
       const vibeRemindersEnabled = await areVibeRemindersEnabled(user.id);
       if (vibeRemindersEnabled) {
         await scheduleVibeReminder({
-          venueId,
+          venueId: placeId,
           venueName: venue?.name || "Venue",
           checkInTime: new Date().toISOString(),
         });
       }
 
-      // Success feedback
       try {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } catch (e) {}
 
-// ✨ Update AppContext IMMEDIATELY
+      const xpResult = await awardXP(user.id, "checkin", {
+        placeId,
+        activityDate: getLocalActivityDate(),
+      });
+      setXpToast({ visible: true, lines: xpResult?.lines || [] });
+
 if (isBar && crowdLevel) {
-  upsertLatestBarCrowd(venueId, {
+  upsertLatestBarCrowd(placeId, {
     crowd_level: crowdLevel,
     created_at: new Date().toISOString(),
   });
 } else if (isClub && lineWait) {
-  upsertLatestLineWait(venueId, lineWait);
+  upsertLatestLineWait(placeId, lineWait);
 }
 
 if (onSuccess) {
@@ -178,6 +187,7 @@ onClose();
   if (!visible) return null;
 
   return (
+    <>
     <Modal
       visible={visible}
       animationType="slide"
@@ -242,6 +252,12 @@ onClose();
         </View>
       </View>
     </Modal>
+    <XPToast
+      visible={xpToast.visible}
+      lines={xpToast.lines}
+      onDismiss={() => setXpToast({ visible: false, lines: [] })}
+    />
+    </>
   );
 }
 

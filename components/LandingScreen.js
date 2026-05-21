@@ -91,7 +91,7 @@ function LandingScreen({ onDiscover }) {
 
       {/* Background */}
       <LinearGradient
-        colors={["#04000F", "#0A0018", "#050010"]}
+        colors={[themeColor.background, themeColor.surface, themeColor.background]}
         start={{ x: 0.2, y: 0 }}
         end={{ x: 0.8, y: 1 }}
         style={StyleSheet.absoluteFill}
@@ -172,7 +172,7 @@ function LandingScreen({ onDiscover }) {
             style={styles.primaryBtnWrap}
           >
             <LinearGradient
-              colors={[themeColor.accent, "#A855F7"]}
+              colors={[themeColor.accent, themeColor.primary]}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               style={styles.primaryBtn}
@@ -197,12 +197,12 @@ function LandingScreen({ onDiscover }) {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: "#04000F",
+    backgroundColor: themeColor.background,
   },
   star: {
     position: "absolute",
     borderRadius: 99,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: themeColor.textPrimary,
   },
   content: {
     flex: 1,
@@ -217,7 +217,7 @@ const styles = StyleSheet.create({
   logo: {
     fontSize: 52,
     fontWeight: "900",
-    color: "#FFFFFF",
+    color: themeColor.textPrimary,
     letterSpacing: -1.5,
   },
   tagline: {
@@ -254,7 +254,7 @@ const styles = StyleSheet.create({
     backgroundColor: themeColor.accent,
   },
   segmentItem: {
-    height: 40,
+    height: 44,
     borderRadius: 9,
     alignItems: "center",
     justifyContent: "center",
@@ -265,7 +265,7 @@ const styles = StyleSheet.create({
     color: themeColor.textMuted,
   },
   segmentTextActive: {
-    color: "#FFFFFF",
+    color: themeColor.textPrimary,
   },
 
   // ─── Feature Copy ───
@@ -277,7 +277,7 @@ const styles = StyleSheet.create({
   featureHeadline: {
     fontSize: 24,
     fontWeight: "800",
-    color: "#FFFFFF",
+    color: themeColor.textPrimary,
     textAlign: "center",
     letterSpacing: -0.5,
     lineHeight: 30,
@@ -309,12 +309,13 @@ const styles = StyleSheet.create({
   },
   primaryBtn: {
     paddingVertical: 18,
+    minHeight: 44,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 14,
   },
   primaryText: {
-    color: "#FFFFFF",
+    color: themeColor.textPrimary,
     fontSize: 17,
     fontWeight: "800",
     letterSpacing: 0.3,

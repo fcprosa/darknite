@@ -6,6 +6,9 @@ import SettingsScreen from "../components/SettingsScreen";
 import ProfileSetupScreen from "../components/ProfileSetupScreen";
 import VibeReportScreen from "../components/VibeReportScreen";
 import PostVibeScreen from "../components/PostVibeScreen";
+import AchievementsScreen from "../components/AchievementsScreen";
+import LeaderboardScreen from "../components/LeaderboardScreen";
+import VenueVibesScreen from "../components/VenueVibesScreen";
 import PrivacySettingsScreen from "../screens/PrivacySettingsScreen";
 import NotificationSettingsScreen from "../screens/NotificationSettingsScreen";
 import PrivacyPolicyScreen from "../screens/PrivacyPolicyScreen";
@@ -13,6 +16,7 @@ import TermsOfServiceScreen from "../screens/TermsOfServiceScreen";
 import { addNotificationResponseListener } from "../services/notificationService";
 import { navigationRef } from "./navigationService";
 import { useAppContext } from "../contexts/AppContext";
+import { COLORS } from "../constants";
 
 const Stack = createNativeStackNavigator();
 
@@ -34,7 +38,7 @@ export default function AppStackNavigator() {
     <Stack.Navigator
       screenOptions={{
         headerShown: false,
-        contentStyle: { backgroundColor: "#050013" },
+        contentStyle: { backgroundColor: COLORS.background },
       }}
     >
       <Stack.Screen
@@ -75,6 +79,20 @@ export default function AppStackNavigator() {
       <Stack.Screen name="TermsOfService">
         {({ navigation }) => <TermsOfServiceScreen navigation={navigation} />}
       </Stack.Screen>
+      <Stack.Screen
+        name="Achievements"
+        component={AchievementsScreen}
+        options={{ presentation: "modal" }}
+      />
+      <Stack.Screen
+        name="Leaderboard"
+        component={LeaderboardScreen}
+        options={{ presentation: "modal" }}
+      />
+      <Stack.Screen
+        name="VenueVibes"
+        component={VenueVibesScreen}
+      />
     </Stack.Navigator>
   );
 }
@@ -144,21 +162,21 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#050013",
+    backgroundColor: COLORS.background,
   },
   errorText: {
-    color: "#F9FAFB",
+    color: COLORS.textPrimary,
     fontSize: 16,
     marginBottom: 16,
   },
   errorButton: {
-    backgroundColor: "#A855F7",
+    backgroundColor: COLORS.primary,
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 8,
   },
   errorButtonText: {
-    color: "#F9FAFB",
+    color: COLORS.textPrimary,
     fontWeight: "600",
   },
 });
