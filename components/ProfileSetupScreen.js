@@ -17,7 +17,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../contexts/AuthContext";
 import { getUserProfile, updateProfile, getUserProfileUsername } from "../services/profileService";
-import { getNeighborhoods } from "../services/venueService";
 import { requestNotificationPermission, cancelExistingReminders, scheduleWeeklyReminders } from "../utils/notificationScheduler";
 
 const MUSIC_GENRES = [
@@ -118,22 +117,6 @@ export default function ProfileSetupScreen({ navigation, route }) {
 
     loadProfile();
   }, [user?.id]);
-
-  // Fetch unique neighborhoods from venues
-  useEffect(() => {
-    async function fetchNeighborhoods() {
-      try {
-        const unique = await getNeighborhoods();
-        if (unique.length > 0) {
-          setNeighborhoods(unique);
-        }
-      } catch (e) {
-        console.error("[ProfileSetup] Error fetching neighborhoods:", e);
-      }
-    }
-
-    fetchNeighborhoods();
-  }, []);
 
   const toggleGenre = (genre) => {
     setFavoriteGenres(prev => {

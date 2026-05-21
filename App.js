@@ -101,7 +101,7 @@ function NotificationHandler() {
       if (type === "weekly_reminder") {
         // Navigate to Home tab to see what's happening
         console.log("[NotificationHandler] Weekly reminder → Home");
-        navigationRef.navigate("MainTabs", { screen: "HomeTab" });
+        navigationRef.navigate("MainTabs", { screen: "MapTab" });
       } else if (type === "vibe_reminder" && venueId) {
         // Find the venue and navigate to PostVibe screen
         console.log("[NotificationHandler] Vibe reminder → PostVibe for", venueName);

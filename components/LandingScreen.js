@@ -12,7 +12,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../contexts/AuthContext";
 import { useAppContext } from "../contexts/AppContext";
-import { color as themeColor } from "../src/theme/tokens";
+import { COLORS as themeColor } from "../constants";
 
 const { width: W } = Dimensions.get("window");
 
@@ -241,7 +241,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "rgba(255,255,255,0.06)",
     borderWidth: 1,
-    borderColor: themeColor.borderDefault,
+    borderColor: themeColor.border,
     position: "relative",
     overflow: "hidden",
   },
@@ -262,7 +262,7 @@ const styles = StyleSheet.create({
   segmentText: {
     fontSize: 14,
     fontWeight: "700",
-    color: themeColor.textTertiary,
+    color: themeColor.textMuted,
   },
   segmentTextActive: {
     color: "#FFFFFF",
@@ -326,7 +326,7 @@ const styles = StyleSheet.create({
   guestText: {
     fontSize: 15,
     fontWeight: "600",
-    color: themeColor.textTertiary,
+    color: themeColor.textMuted,
   },
 });
 

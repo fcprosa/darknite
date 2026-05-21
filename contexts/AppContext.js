@@ -1,9 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { AppState } from "react-native";
-import { getAllVenues } from "../services/venueService";
 import { getLatestVibesBatch, fetchVibeWithProfile } from "../services/vibeService";
 import { getLatestBarCrowdCheckIn, getLatestLineWait } from "../services/checkInService";
-import { getActiveMoveCounts } from "../services/moveService";
 import { getVenueKeySafe } from "../utils/venueHelpers";
 import { supabase } from "../utils/supabase";
 import * as Location from "expo-location";
@@ -142,33 +140,8 @@ export function AppProvider({ children }) {
 
   // Refresh move counts for all venues (with race condition protection)
   const refreshMoveCounts = useCallback(async () => {
-    if (venues.length === 0) return;
-
-    if (isRefreshingMovesRef.current) {
-      console.log("[AppContext] refreshMoveCounts already in progress, skipping");
-      return;
-    }
-
-    isRefreshingMovesRef.current = true;
-
-    try {
-      const venueIds = venues
-        .map(venue => getVenueKeySafe(venue))
-        .filter(id => id !== null && id !== undefined);
-
-      if (venueIds.length === 0) {
-        setMoveCountsByVenueId({});
-        return;
-      }
-
-      const counts = await getActiveMoveCounts(venueIds);
-      setMoveCountsByVenueId(counts);
-    } catch (error) {
-      console.error("[AppContext] Error refreshing move counts:", error);
-    } finally {
-      isRefreshingMovesRef.current = false;
-    }
-  }, [venues]);
+    setMoveCountsByVenueId({});
+  }, []);
 
   // Optimistic update: increment move count locally
   const incrementMoveCount = useCallback((venueId) => {
@@ -341,25 +314,12 @@ export function AppProvider({ children }) {
     if (!locationReady) return;
 
     let mounted = true;
-    // Tracks the sorted venue-id fingerprint of the last successful load.
-    // Prevents unnecessary state churn when the venue list hasn't changed
-    // (e.g. repeated foreground events returning the same DB rows).
-    let lastVenueIds = "";
 
     async function loadVenues() {
       if (!mounted) return;
       setLoadingVenues(true);
-      const v = await getAllVenues();
-      if (!mounted) return;
-
-      // Compare by sorted IDs so ordering differences don't trigger a reload.
-      const newIds = v.map((x) => x.id).sort().join(",");
-      if (newIds !== lastVenueIds) {
-        lastVenueIds = newIds;
-        // Reset so the downstream effect re-fetches vibes for the new venue set.
-        setLatestVibesLoaded(false);
-        setVenues(v);
-      }
+      setVenues([]);
+      setLatestVibesLoaded(true);
       setLoadingVenues(false);
     }
 

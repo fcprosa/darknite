@@ -18,6 +18,10 @@ module.exports = {
       bundleIdentifier: "com.darknite.app",
       buildNumber: "1",
       usesAppleSignIn: true,
+      config: {
+        googleMapsApiKey:
+          process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_PLACES_API_KEY,
+      },
       infoPlist: {
         NSLocationWhenInUseUsageDescription: "DarkNite uses your location to show venues near you.",
         ITSAppUsesNonExemptEncryption: false
@@ -51,6 +55,12 @@ module.exports = {
     android: {
       package: "com.darknite.app",
       versionCode: 1,
+      config: {
+        googleMaps: {
+          apiKey:
+            process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_PLACES_API_KEY,
+        },
+      },
       adaptiveIcon: {
         foregroundImage: "./assets/adaptive-icon.png",
         backgroundColor: "#050013"
